@@ -21,10 +21,14 @@ LLM is AWS Bedrock (Claude Haiku 4.5), called via LiteLLM — swap providers wit
 
 ## Quick start
 
+> **macOS/Linux:** `docker-compose.yml` mounts `C:\Users\MadhavS\.aws:/root/.aws:ro`.
+> Change to `${HOME}/.aws:/root/.aws:ro` (or remove the line entirely and rely on the
+> `AWS_*` env vars from `.env`).
+
 ```bash
 # 1. Configure
 cp .env.example .env
-# edit .env with your AWS keys (or leave blank for Ollama fallback later)
+# fill in AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for Bedrock
 
 # 2. Bring everything up
 docker compose up -d opensearch postgres phoenix
@@ -84,21 +88,67 @@ marimo edit notebooks/analysis.py
 
 ---
 
-## What you'll code
+## Implementation status
 
-The scaffold compiles and the four systems wire end-to-end, but several
-functions are stubs you'll flesh out from your prod code:
+| File                                 | Status        | Notes                                                                          |
+|--------------------------------------|---------------|--------------------------------------------------------------------------------|
+| `src/datasets/multihop.py`           | implemented   | Loads `corpus` + `MultiHopRAG` HF configs; URL-keyed chunks; idempotent re-run |
+| `src/datasets/ragtruth.py`           | implemented   | `hallucination` derived from non-empty `labels` span list                      |
+| `src/evaluation/runner.py`           | implemented   | Per-query failures persist a stub row so resume skips them                     |
+| `src/systems/system_b.py`            | partial       | Loop runs; `tokens_in/out` and `cost_usd` still 0 — affects B/D `$/correct`    |
+| `src/retrieval/opensearch_client.py` | hybrid stub   | `hybrid_search` falls back to k-NN; needs OS search pipeline or client-side RRF |
+| `src/evaluation/metrics.py`          | done          | Runner uses `contains_match`; switch to `exact_match` for MultiHop paper compliance |
 
-| File                                 | Status      | What to do                                                |
-|--------------------------------------|-------------|-----------------------------------------------------------|
-| `src/datasets/multihop.py`           | stub        | Inspect dataset row schema; map fields exactly             |
-| `src/datasets/ragtruth.py`           | stub        | Same — map `hallucination` label correctly                 |
-| `src/systems/system_b.py`            | skeleton    | Plug in your prod LangGraph nodes; populate token/cost     |
-| `src/retrieval/opensearch_client.py` | hybrid stub | True BM25+kNN hybrid needs OpenSearch search pipeline      |
-| `src/evaluation/metrics.py`          | done        | Adjust exact vs. contains match to your dataset's spec     |
+Everything else (calibration, metrics aggregation, CLI, tracing, schema,
+migrations, Phoenix wiring, Bedrock client) is wired and runnable.
 
-Everything else (the runner, calibration, metrics aggregation, CLI, tracing,
-schema, migrations, Phoenix wiring, Bedrock client) is wired and runnable.
+### Ready to evaluate — checklist
+
+Run these in order; each step is idempotent and safe to retry.
+
+```bash
+# 0. One-off setup
+cp .env.example .env                  # fill in AWS keys
+# (macOS/Linux: fix the AWS mount in docker-compose.yml — see Quick start note)
+
+# 1. Stack up + schema
+docker compose up -d opensearch postgres phoenix
+docker compose build api
+docker compose run --rm api alembic upgrade head
+docker compose run --rm api python -m src.cli healthcheck   # expect 5 green lines
+
+# 2. Load data
+docker compose run --rm api python -m src.cli ingest-dataset multihop
+docker compose run --rm api python -m src.cli ingest-dataset ragtruth
+docker compose run --rm api python -m src.cli index-corpus multihop
+
+# 3. Calibrate the HHEM gate
+docker compose run --rm api python -m src.cli calibrate
+# Inspect /data/results/threshold.json — set HHEM_THRESHOLD in .env to that value.
+
+# 4. Smoke-test one system on a handful of queries before the full run
+docker compose run --rm api python -m src.cli run-experiment \
+  --name smoke --systems A --datasets multihop --limit 5
+docker compose run --rm api python -m src.cli compute-metrics --experiment 1
+
+# 5. Full run
+docker compose run --rm api python -m src.cli run-experiment \
+  --name dissertation-final --systems A,B,C,D --datasets multihop
+docker compose run --rm api python -m src.cli compute-metrics --experiment 2
+docker compose run --rm api python -m src.cli export --experiment 2
+```
+
+### Known caveats that affect headline numbers
+
+- **B/D cost is under-reported** until `system_b.py` accumulates tokens/cost from the
+  instructor raw response. `$/correct` and `total_cost_usd` for those two systems will
+  read as 0 in the metrics table.
+- **Accuracy denominator includes failed runs** (rows with `is_correct IS NULL`) in
+  `compute-metrics`. Either delete those rows before aggregating, or filter the
+  denominator in `cli.py:compute_metrics`.
+- **Dataset field names** for `ParticleMedia/RAGTruth` were coded against the
+  documented RAGTruth schema; if HF returns a different shape on first ingest, adjust
+  the field accessors in `src/datasets/ragtruth.py`.
 
 ---
 
