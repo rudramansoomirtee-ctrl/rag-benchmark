@@ -47,7 +47,10 @@ docker compose run --rm api python -m src.cli healthcheck
 docker compose up -d api
 ```
 
-Open Phoenix at <http://localhost:6006> and the FastAPI docs at <http://localhost:8000/docs>.
+Open:
+- **Testing console** at <http://localhost:8000/> — three-tab UI (Ask, Data, Experiments) for trying systems A–D, ingesting datasets, and browsing experiment results.
+- **Phoenix** at <http://localhost:6006> — trace tree per query.
+- **FastAPI docs** at <http://localhost:8000/docs> — raw API surface.
 
 ---
 
