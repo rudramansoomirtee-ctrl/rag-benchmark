@@ -1,0 +1,90 @@
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.18.0
+    container_name: rag-opensearch
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+      - ./opensearch/opensearch.yml:/usr/share/opensearch/config/opensearch.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      retries: 12
+      start_period: 30s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag-postgres
+    environment:
+      POSTGRES_DB: ragbench
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragbench}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d ragbench"]
+      interval: 5s
+      retries: 12
+
+  # Phoenix uses its own embedded SQLite for trace/eval storage.
+  # Simpler than wiring a second Postgres DB; fine for single-user dissertation scale.
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: rag-phoenix
+    environment:
+      PHOENIX_WORKING_DIR: /phoenix
+    ports:
+      - "6006:6006"        # UI + OTLP/HTTP
+      - "4317:4317"        # OTLP gRPC
+    volumes:
+      - phoenix_data:/phoenix
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:6006/healthz')\" || exit 1"]
+      interval: 10s
+      retries: 12
+      start_period: 20s
+
+  api:
+    build: ./api
+    container_name: rag-api
+    depends_on:
+      opensearch: { condition: service_healthy }
+      postgres:   { condition: service_healthy }
+      phoenix:    { condition: service_started }
+    environment:
+      DATABASE_URL: postgresql+psycopg://rag:${POSTGRES_PASSWORD:-ragbench}@postgres:5432/ragbench
+      OPENSEARCH_URL: http://opensearch:9200
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-eu-west-2}
+      LITELLM_MODEL: ${LITELLM_MODEL:-bedrock/anthropic.claude-haiku-4-5-20251001-v1:0}
+      HF_HOME: /models
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api/src:/app/src           # live-reload while you code
+      - ./data:/data
+      - hf_models:/models
+      - C:\Users\MadhavS\.aws:/root/.aws:ro
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  opensearch_data:
+  pg_data:
+  phoenix_data:
+  hf_models:

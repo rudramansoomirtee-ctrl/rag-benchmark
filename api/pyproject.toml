@@ -1,0 +1,9 @@
+[project]
+name = "rag-benchmark"
+version = "0.1.0"
+description = "RAG benchmark stack for MultiHop-RAG and RAGTruth evaluation"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

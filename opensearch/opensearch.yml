@@ -1,0 +1,6 @@
+cluster.name: rag-cluster
+node.name: rag-node-1
+network.host: 0.0.0.0
+
+# Disable security plugin — local-only dev/eval environment.
+plugins.security.disabled: true

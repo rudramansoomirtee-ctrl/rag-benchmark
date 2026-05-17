@@ -1,0 +1,139 @@
+"""The experiment loop.
+
+Iterates over (system, dataset, query). For each combination:
+  1. Calls system.answer(query)
+  2. Scores correctness vs ground truth
+  3. Computes precision@k / recall@k
+  4. Persists a `runs` row to Postgres
+  5. Phoenix captures the full trace automatically
+
+The runner is resumable: the UNIQUE(experiment_id, system, query_id) constraint
+on `runs` means re-running this picks up where it left off — useful when Bedrock
+throttles mid-eval.
+"""
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+
+from src.config import settings
+from src.db.models import Experiment, Query, Run
+from src.db.session import get_session
+from src.evaluation.metrics import exact_match, contains_match
+from src.systems.base import System, RunResult
+from src.systems.system_a import SystemA
+from src.systems.system_b import SystemB
+from src.systems.system_c import SystemC
+from src.systems.system_d import SystemD
+
+
+SYSTEM_REGISTRY: dict[str, type[System]] = {
+    "A": SystemA,
+    "B": SystemB,
+    "C": SystemC,
+    "D": SystemD,
+}
+
+
+def run_experiment(
+    name: str,
+    systems: list[str],
+    datasets: list[str],
+    split: str = "eval",
+    limit: int | None = None,
+) -> int:
+    """Run all (system, dataset, query) combinations and persist to `runs`.
+
+    Returns the experiment_id.
+    """
+    console = Console()
+    session = get_session()
+
+    try:
+        # Create or reuse experiment
+        exp = Experiment(
+            name=name,
+            config_json={
+                "systems": systems,
+                "datasets": datasets,
+                "split": split,
+                "top_k": settings.top_k,
+                "max_agent_steps": settings.max_agent_steps,
+                "model": settings.litellm_model,
+                "embedding_model": settings.embedding_model,
+            },
+        )
+        session.add(exp)
+        session.commit()
+        session.refresh(exp)
+        exp_id = exp.id
+
+        # Load queries
+        queries: list[Query] = session.scalars(
+            select(Query).where(Query.dataset.in_(datasets), Query.split == split).order_by(Query.id)
+        ).all()
+        if limit:
+            queries = queries[:limit]
+
+        console.print(
+            f"[bold]Experiment[/bold] [cyan]{name}[/cyan] (id={exp_id}) — "
+            f"{len(queries)} queries × {len(systems)} systems = {len(queries) * len(systems)} runs"
+        )
+
+        # Instantiate systems once
+        system_instances: dict[str, System] = {s: SYSTEM_REGISTRY[s]() for s in systems}
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            for sys_name, system in system_instances.items():
+                task = progress.add_task(f"System {sys_name}", total=len(queries))
+                for q in queries:
+                    _run_one(session, exp_id, sys_name, system, q)
+                    progress.advance(task)
+
+        session.query(Experiment).filter_by(id=exp_id).update(
+            {"finished_at": __import__("sqlalchemy").func.now()}
+        )
+        session.commit()
+        return exp_id
+    finally:
+        session.close()
+
+
+def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> None:
+    """Execute one (system, query) run. Idempotent via UNIQUE constraint upsert."""
+    try:
+        result: RunResult = system.answer(q.query_text)
+    except Exception as e:
+        # Persist failures as rows with NULL answer so we can resume cleanly.
+        Console().print(f"[red]System {sys_name} failed on query {q.id}: {e}[/red]")
+        return
+
+    is_correct = (
+        contains_match(result.answer, q.ground_truth) if q.ground_truth else None
+    )
+
+    stmt = insert(Run).values(
+        experiment_id=exp_id,
+        system=sys_name,
+        query_id=q.id,
+        retrieved_chunk_ids=result.retrieved_chunk_ids,
+        answer=result.answer,
+        hhem_score=result.hhem_score,
+        flagged=result.flagged,
+        n_steps=result.n_steps,
+        tokens_in=result.tokens_in,
+        tokens_out=result.tokens_out,
+        latency_ms=result.latency_ms,
+        cost_usd=result.cost_usd,
+        is_correct=is_correct,
+        phoenix_trace_id=result.phoenix_trace_id,
+    ).on_conflict_do_nothing(index_elements=["experiment_id", "system", "query_id"])
+    session.execute(stmt)
+    session.commit()
