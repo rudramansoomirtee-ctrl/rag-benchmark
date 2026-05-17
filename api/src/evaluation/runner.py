@@ -111,8 +111,17 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
     try:
         result: RunResult = system.answer(q.query_text)
     except Exception as e:
-        # Persist failures as rows with NULL answer so we can resume cleanly.
         Console().print(f"[red]System {sys_name} failed on query {q.id}: {e}[/red]")
+        # Stub row so the UNIQUE upsert skips this query on resume.
+        # Clear with `DELETE FROM runs WHERE answer IS NULL` to retry failures.
+        stmt = insert(Run).values(
+            experiment_id=exp_id,
+            system=sys_name,
+            query_id=q.id,
+            retrieved_chunk_ids=[],
+        ).on_conflict_do_nothing(index_elements=["experiment_id", "system", "query_id"])
+        session.execute(stmt)
+        session.commit()
         return
 
     is_correct = (

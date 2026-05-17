@@ -1,9 +1,12 @@
-"""Load RAGTruth (ParticleMedia/RAGTruth) into Postgres.
+"""Load RAGTruth into Postgres for HHEM threshold calibration.
 
-Used primarily for HHEM threshold calibration: RAGTruth ships hallucination
-labels per response that we can use to fit a precision/recall threshold.
+Each row is one (source, response) pair. RAGTruth annotates hallucinations
+as character-span labels — a non-empty `labels` list means the response
+contains at least one hallucinated span, which is what the calibrator
+treats as the positive class.
 """
 from datasets import load_dataset
+from sqlalchemy import select
 
 from src.db.models import Query
 from src.db.session import get_session
@@ -13,29 +16,35 @@ DATASET_NAME = "ragtruth"
 
 
 def ingest(split: str = "calibration") -> int:
-    """Ingest the RAGTruth response rows as queries. Returns n rows ingested.
-
-    Stub: inspect the dataset and map the real fields. We treat each
-    (prompt, response, label) as one row; calibration uses these labels
-    against HHEM scores.
-    """
+    """Ingest RAGTruth response rows. Returns n rows ingested. Idempotent."""
     ds = load_dataset("ParticleMedia/RAGTruth", split="train")
 
     session = get_session()
-    n = 0
     try:
-        for row in ds:
+        existing = set(session.scalars(
+            select(Query.external_id).where(Query.dataset == DATASET_NAME)
+        ).all())
+
+        n = 0
+        for i, row in enumerate(ds):
+            rid = str(row.get("id") or f"rt-{i}")
+            if rid in existing:
+                continue
+
+            # Non-empty span list => the response contains a hallucination.
+            labels = row.get("labels") or []
             session.add(Query(
                 dataset=DATASET_NAME,
-                external_id=str(row.get("id")),
+                external_id=rid,
                 split=split,
                 task_type=row.get("task_type", "qa"),
-                query_text=row.get("prompt", ""),
+                query_text=row.get("source") or row.get("prompt", ""),
                 ground_truth=row.get("response", ""),
-                relevant_chunk_ids=[],  # RAGTruth doesn't expose ground-truth chunk IDs
+                relevant_chunk_ids=[],
                 query_metadata={
-                    "labels": row.get("labels"),
-                    "hallucination": row.get("hallucination"),
+                    "labels": labels,
+                    "hallucination": 1 if labels else 0,
+                    "model": row.get("model"),
                 },
             ))
             n += 1

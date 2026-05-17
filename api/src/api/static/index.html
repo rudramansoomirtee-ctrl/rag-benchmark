@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RAG Benchmark — Console</title>
+  <style>
+    :root { --fg:#1f2328; --muted:#656d76; --bg:#fff; --line:#d0d7de;
+            --accent:#0969da; --ok:#1a7f37; --bad:#cf222e; --code:#f6f8fa; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;
+           color:var(--fg); background:var(--bg); }
+    header { padding:16px 24px; border-bottom:1px solid var(--line);
+             display:flex; align-items:center; gap:24px; }
+    header h1 { margin:0; font-size:16px; }
+    nav button { background:none; border:0; padding:8px 12px; cursor:pointer;
+                 font-size:14px; color:var(--muted); border-bottom:2px solid transparent; }
+    nav button.active { color:var(--fg); border-color:var(--accent); }
+    main { padding:24px; max-width:1100px; margin:0 auto; }
+    .tab { display:none; }
+    .tab.active { display:block; }
+    h2 { font-size:18px; margin:0 0 16px; }
+    label { display:block; font-weight:600; margin:12px 0 4px; font-size:13px; }
+    textarea, input, select { width:100%; padding:8px 10px; border:1px solid var(--line);
+                              border-radius:6px; font:inherit; }
+    textarea { resize:vertical; min-height:80px; font-family:inherit; }
+    .systems { display:flex; gap:12px; margin:8px 0; }
+    .systems label { display:flex; align-items:center; gap:6px; font-weight:400; margin:0; cursor:pointer; }
+    button.primary { background:var(--accent); color:#fff; border:0; padding:8px 16px;
+                     border-radius:6px; cursor:pointer; font:inherit; font-weight:600; }
+    button.primary:disabled { opacity:0.5; cursor:wait; }
+    button.secondary { background:#fff; color:var(--fg); border:1px solid var(--line);
+                       padding:6px 12px; border-radius:6px; cursor:pointer; font:inherit; }
+    .result { margin-top:20px; border:1px solid var(--line); border-radius:8px; padding:16px; }
+    .result .answer { white-space:pre-wrap; padding:12px; background:var(--code); border-radius:6px; }
+    .meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+            gap:8px 16px; margin-top:12px; font-size:13px; }
+    .meta div { color:var(--muted); }
+    .meta strong { color:var(--fg); display:block; }
+    .chunk { margin:8px 0; padding:10px; background:var(--code); border-radius:6px; font-size:13px; }
+    .chunk .cid { color:var(--muted); font-family:monospace; font-size:12px; }
+    table { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+    th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+    th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; }
+    tr.clickable { cursor:pointer; }
+    tr.clickable:hover { background:var(--code); }
+    .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600; }
+    .pill.ok { background:#dafbe1; color:var(--ok); }
+    .pill.bad { background:#ffebe9; color:var(--bad); }
+    .error { color:var(--bad); margin-top:12px; }
+    .muted { color:var(--muted); }
+    details { margin-top:12px; }
+    details summary { cursor:pointer; color:var(--muted); font-weight:600; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>RAG Benchmark</h1>
+    <nav>
+      <button data-tab="ask" class="active">Ask</button>
+      <button data-tab="data">Data</button>
+      <button data-tab="experiments">Experiments</button>
+    </nav>
+    <span class="muted" style="margin-left:auto">
+      <a href="/docs" style="color:inherit">/docs</a> ·
+      <a href="http://localhost:6006" target="_blank" style="color:inherit">Phoenix</a>
+    </span>
+  </header>
+  <main>
+
+    <section id="tab-ask" class="tab active">
+      <h2>Ask a question</h2>
+      <label>System</label>
+      <div class="systems">
+        <label><input type="radio" name="sys" value="A" checked> A — naive RAG</label>
+        <label><input type="radio" name="sys" value="B"> B — agent loop</label>
+        <label><input type="radio" name="sys" value="C"> C — A + HHEM gate</label>
+        <label><input type="radio" name="sys" value="D"> D — B + HHEM gate</label>
+      </div>
+      <label>Query</label>
+      <textarea id="query" placeholder="e.g. Which company that Bloomberg covered in 2023 also issued a Q4 earnings warning?"></textarea>
+      <p><button class="primary" id="ask-btn">Ask</button>
+         <span class="muted" id="ask-hint" style="margin-left:8px"></span></p>
+      <div id="ask-result"></div>
+    </section>
+
+    <section id="tab-data" class="tab">
+      <h2>Datasets</h2>
+      <p class="muted">Counts are read from Postgres. Buttons trigger sync ingestion / indexing — runs take seconds to a few minutes.</p>
+      <table id="data-table"><thead><tr>
+        <th>Dataset</th><th>Queries</th><th>Chunks</th><th>Actions</th>
+      </tr></thead><tbody></tbody></table>
+      <p class="muted" style="margin-top:16px">
+        <strong>Calibrate HHEM:</strong> long-running on CPU — use the CLI:
+        <code>docker compose run --rm api python -m src.cli calibrate</code>
+      </p>
+      <div id="data-msg"></div>
+    </section>
+
+    <section id="tab-experiments" class="tab">
+      <h2>Experiments</h2>
+      <p class="muted">Created via <code>python -m src.cli run-experiment</code>. Click a row to see runs &amp; metrics.</p>
+      <table id="exp-table"><thead><tr>
+        <th>ID</th><th>Name</th><th>Started</th><th>Finished</th>
+      </tr></thead><tbody></tbody></table>
+      <div id="exp-detail"></div>
+    </section>
+
+  </main>
+
+  <script>
+    // --- Tabs ---
+    document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+      document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
+      if (b.dataset.tab === 'data') loadDatasets();
+      if (b.dataset.tab === 'experiments') loadExperiments();
+    });
+
+    // --- Ask ---
+    const askBtn = document.getElementById('ask-btn');
+    const askHint = document.getElementById('ask-hint');
+    const askResult = document.getElementById('ask-result');
+    askBtn.onclick = async () => {
+      const query = document.getElementById('query').value.trim();
+      const system = document.querySelector('input[name=sys]:checked').value;
+      if (!query) return;
+      askBtn.disabled = true;
+      askHint.textContent = 'thinking… (first call per system warms its model — can take 30s)';
+      askResult.innerHTML = '';
+      try {
+        const r = await fetch('/api/ask', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({system, query})
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
+        askResult.innerHTML = renderAnswer(data);
+      } catch (e) {
+        askResult.innerHTML = `<div class="error">${e.message}</div>`;
+      } finally {
+        askBtn.disabled = false;
+        askHint.textContent = '';
+      }
+    };
+
+    function renderAnswer(d) {
+      const flagPill = d.flagged === true ? '<span class="pill bad">flagged</span>'
+                     : d.flagged === false ? '<span class="pill ok">faithful</span>' : '';
+      const chunks = d.retrieved_chunks.map(c =>
+        `<div class="chunk"><div class="cid">${escape(c.id)}</div>${escape(c.text)}</div>`
+      ).join('') || '<p class="muted">No chunks retrieved.</p>';
+      return `
+        <div class="result">
+          <strong>Answer</strong> ${flagPill}
+          <div class="answer">${escape(d.answer || '')}</div>
+          <div class="meta">
+            <div><strong>${d.latency_ms} ms</strong>latency</div>
+            <div><strong>${d.n_steps}</strong>steps</div>
+            <div><strong>${d.tokens_in}/${d.tokens_out}</strong>tokens in/out</div>
+            <div><strong>$${(d.cost_usd || 0).toFixed(6)}</strong>cost</div>
+            <div><strong>${d.hhem_score != null ? d.hhem_score.toFixed(3) : '—'}</strong>HHEM</div>
+          </div>
+          <details><summary>Retrieved chunks (${d.retrieved_chunks.length})</summary>${chunks}</details>
+        </div>`;
+    }
+
+    // --- Data ---
+    async function loadDatasets() {
+      const tbody = document.querySelector('#data-table tbody');
+      tbody.innerHTML = '<tr><td colspan="4" class="muted">loading…</td></tr>';
+      const r = await fetch('/api/datasets');
+      const data = await r.json();
+      tbody.innerHTML = data.map(d => `
+        <tr>
+          <td>${d.dataset}</td>
+          <td>${d.queries}</td>
+          <td>${d.chunks}</td>
+          <td>
+            <button class="secondary" onclick="runJob('ingest','${d.dataset}')">Ingest</button>
+            ${d.dataset === 'multihop' ? `<button class="secondary" onclick="runJob('index','${d.dataset}')">Index corpus</button>` : ''}
+          </td>
+        </tr>`).join('');
+    }
+    async function runJob(kind, dataset) {
+      const msg = document.getElementById('data-msg');
+      msg.innerHTML = `<p class="muted">${kind} ${dataset}… (this may take a few minutes)</p>`;
+      try {
+        const r = await fetch(`/api/${kind}/${dataset}`, {method: 'POST'});
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
+        msg.innerHTML = `<p>Done: <code>${JSON.stringify(data)}</code></p>`;
+        loadDatasets();
+      } catch (e) {
+        msg.innerHTML = `<div class="error">${e.message}</div>`;
+      }
+    }
+
+    // --- Experiments ---
+    async function loadExperiments() {
+      const tbody = document.querySelector('#exp-table tbody');
+      tbody.innerHTML = '<tr><td colspan="4" class="muted">loading…</td></tr>';
+      const r = await fetch('/api/experiments');
+      const data = await r.json();
+      tbody.innerHTML = data.length
+        ? data.map(e => `<tr class="clickable" onclick="loadExpDetail(${e.id})">
+            <td>${e.id}</td><td>${escape(e.name)}</td>
+            <td>${fmt(e.started_at)}</td><td>${fmt(e.finished_at) || '<span class="muted">—</span>'}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="4" class="muted">No experiments yet. Run one via the CLI.</td></tr>';
+      document.getElementById('exp-detail').innerHTML = '';
+    }
+    async function loadExpDetail(id) {
+      const detail = document.getElementById('exp-detail');
+      detail.innerHTML = '<p class="muted">loading…</p>';
+      const [mr, rr] = await Promise.all([
+        fetch(`/api/experiments/${id}/metrics`).then(r => r.json()),
+        fetch(`/api/experiments/${id}/runs?limit=50`).then(r => r.json()),
+      ]);
+      const metricsHtml = mr.length ? `
+        <h3>Metrics</h3>
+        <table><thead><tr>
+          <th>Sys</th><th>DS</th><th>N</th><th>P@5</th><th>R@5</th>
+          <th>Acc</th><th>HHEM</th><th>%flag</th><th>Cost</th><th>$/corr</th>
+        </tr></thead><tbody>${mr.map(m => `<tr>
+          <td>${m.system}</td><td>${m.dataset}</td><td>${m.n_queries}</td>
+          <td>${num(m.precision_at_5)}</td><td>${num(m.recall_at_5)}</td>
+          <td>${num(m.accuracy)}</td><td>${num(m.avg_faithfulness)}</td>
+          <td>${num(m.pct_flagged)}</td><td>$${num(m.total_cost_usd)}</td>
+          <td>$${num(m.cost_per_correct, 4)}</td>
+        </tr>`).join('')}</tbody></table>` : '<p class="muted">No metrics yet — run compute-metrics.</p>';
+      const runsHtml = rr.length ? `
+        <h3>Runs (first ${rr.length})</h3>
+        <table><thead><tr>
+          <th>Sys</th><th>Query</th><th>Answer</th><th>✓</th><th>HHEM</th><th>ms</th>
+        </tr></thead><tbody>${rr.map(r => `<tr>
+          <td>${r.system}</td>
+          <td>${escape((r.query || '').slice(0, 80))}…</td>
+          <td>${escape((r.answer || '').slice(0, 80))}${r.answer && r.answer.length > 80 ? '…' : ''}</td>
+          <td>${r.is_correct === true ? '<span class="pill ok">✓</span>'
+                : r.is_correct === false ? '<span class="pill bad">✗</span>' : '—'}</td>
+          <td>${num(r.hhem_score)}</td><td>${r.latency_ms ?? '—'}</td>
+        </tr>`).join('')}</tbody></table>` : '<p class="muted">No runs.</p>';
+      detail.innerHTML = metricsHtml + runsHtml;
+    }
+
+    // --- Helpers ---
+    function escape(s) { return String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+    function num(v, digits = 3) { return v == null ? '—' : Number(v).toFixed(digits); }
+    function fmt(iso) { return iso ? new Date(iso).toLocaleString() : ''; }
+  </script>
+</body>
+</html>

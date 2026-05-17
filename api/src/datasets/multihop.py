@@ -1,10 +1,15 @@
 """Load MultiHop-RAG (yixuantt/MultiHopRAG) into our Postgres tables.
 
-Schema reference: https://huggingface.co/datasets/yixuantt/MultiHopRAG
-Keys vary slightly across HF dataset versions — adjust the field names below
-once you've inspected a sample row.
+The HF repo ships two configs:
+  - `corpus`      — the news articles (one per row).
+  - `MultiHopRAG` — the multi-hop questions with an `evidence_list`
+                    pointing back into the corpus by URL.
+
+Chunks are keyed by URL; a query's `relevant_chunk_ids` is the unique URL
+list from its evidence.
 """
 from datasets import load_dataset
+from sqlalchemy import select
 
 from src.db.models import Chunk, Query
 from src.db.session import get_session
@@ -14,46 +19,58 @@ DATASET_NAME = "multihop"
 
 
 def ingest(split: str = "eval") -> tuple[int, int]:
-    """Ingest queries and chunks. Returns (n_queries, n_chunks).
+    """Ingest queries and corpus chunks. Returns (n_queries, n_chunks).
 
-    Stub: inspect the actual dataset schema first, then map fields. The
-    structure below is a placeholder.
+    Idempotent: re-running skips rows already present (by external_id).
     """
-    ds = load_dataset("yixuantt/MultiHopRAG", split="train")
+    corpus = load_dataset("yixuantt/MultiHopRAG", "corpus", split="train")
+    queries = load_dataset("yixuantt/MultiHopRAG", "MultiHopRAG", split="train")
 
     session = get_session()
-    n_queries = n_chunks = 0
     try:
-        # TODO: map your real fields. The dataset has 'query', 'answer',
-        # 'evidence_list' (chunks), and supporting metadata.
-        seen_chunks: set[str] = set()
-        for row in ds:
-            # Chunks first
-            for ev in row.get("evidence_list", []):
-                cid = ev.get("id") or ev.get("title")
-                if cid in seen_chunks:
-                    continue
-                seen_chunks.add(cid)
-                session.add(Chunk(
-                    dataset=DATASET_NAME,
-                    external_id=str(cid),
-                    text=ev.get("fact", "") or ev.get("body", ""),
-                    chunk_metadata={"title": ev.get("title"), "source": ev.get("source")},
-                ))
-                n_chunks += 1
+        existing_chunks = set(session.scalars(
+            select(Chunk.external_id).where(Chunk.dataset == DATASET_NAME)
+        ).all())
+        existing_queries = set(session.scalars(
+            select(Query.external_id).where(Query.dataset == DATASET_NAME)
+        ).all())
 
-            # Then the query
+        n_chunks = 0
+        for row in corpus:
+            cid = row["url"]
+            if cid in existing_chunks:
+                continue
+            existing_chunks.add(cid)
+            session.add(Chunk(
+                dataset=DATASET_NAME,
+                external_id=cid,
+                text=row["body"],
+                chunk_metadata={
+                    "title": row.get("title"),
+                    "author": row.get("author"),
+                    "source": row.get("source"),
+                    "category": row.get("category"),
+                    "published_at": row.get("published_at"),
+                },
+            ))
+            n_chunks += 1
+
+        n_queries = 0
+        for i, row in enumerate(queries):
+            qid = f"mh-{i}"
+            if qid in existing_queries:
+                continue
+            relevant = list(dict.fromkeys(
+                ev["url"] for ev in row.get("evidence_list", []) if ev.get("url")
+            ))
             session.add(Query(
                 dataset=DATASET_NAME,
-                external_id=str(row.get("_id") or row.get("query")),
+                external_id=qid,
                 split=split,
                 task_type="qa",
                 query_text=row["query"],
                 ground_truth=row.get("answer"),
-                relevant_chunk_ids=[
-                    str(ev.get("id") or ev.get("title"))
-                    for ev in row.get("evidence_list", [])
-                ],
+                relevant_chunk_ids=relevant,
                 query_metadata={"question_type": row.get("question_type")},
             ))
             n_queries += 1
