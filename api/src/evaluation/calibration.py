@@ -1,12 +1,13 @@
 """HHEM threshold calibration using RAGTruth labels.
 
-Fits the threshold that maximises F1 on the calibration split, plots an ROC curve,
-saves both to /data/results/.
+Fits the threshold that maximises F1 on the calibration split and writes
+threshold.json to /data/results/. If matplotlib is installed, also writes
+calibration_curve.png; otherwise plotting is skipped silently — the
+threshold is what Systems C/D actually consume, the PNG is just a figure.
 """
 import json
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import roc_curve, roc_auc_score
 
@@ -26,13 +27,10 @@ def fit_threshold(
     s = np.asarray(scores, dtype=float)
     y = np.asarray(labels, dtype=int)
 
-    # We flip the score: "flag-positive" if low score. roc_curve expects scores
-    # that are HIGHER for positive class.
     flag_score = 1.0 - s
     fpr, tpr, thresholds = roc_curve(y, flag_score)
     auc = float(roc_auc_score(y, flag_score))
 
-    # Best F1 over thresholds
     best = {"threshold": 0.5, "f1": 0.0, "precision": 0.0, "recall": 0.0}
     for thr in thresholds:
         predicted_flag = (flag_score >= thr).astype(int)
@@ -43,7 +41,6 @@ def fit_threshold(
         recall = tp / (tp + fn) if (tp + fn) else 0.0
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
         if f1 > best["f1"]:
-            # Convert the flag_score threshold back to the original-score threshold
             best = {
                 "threshold": float(1.0 - thr),
                 "f1": float(f1),
@@ -53,17 +50,23 @@ def fit_threshold(
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    # ROC plot
-    plt.figure(figsize=(6, 6))
-    plt.plot(fpr, tpr, label=f"HHEM (AUC = {auc:.3f})")
-    plt.plot([0, 1], [0, 1], "k--", label="chance")
-    plt.xlabel("False positive rate")
-    plt.ylabel("True positive rate")
-    plt.title("HHEM hallucination detection — ROC")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/calibration_curve.png", dpi=150)
-    plt.close()
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(6, 6))
+        plt.plot(fpr, tpr, label=f"HHEM (AUC = {auc:.3f})")
+        plt.plot([0, 1], [0, 1], "k--", label="chance")
+        plt.xlabel("False positive rate")
+        plt.ylabel("True positive rate")
+        plt.title("HHEM hallucination detection — ROC")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/calibration_curve.png", dpi=150)
+        plt.close()
+    except ImportError:
+        pass
 
     summary = {**best, "auc": auc, "n_samples": int(len(y))}
     with open(f"{output_dir}/threshold.json", "w") as f:
