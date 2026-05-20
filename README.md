@@ -131,6 +131,22 @@ recover no URL and are skipped; `cost_usd` covers only the answer call, not
 OpenRag's retrieval-side OpenAI/Cohere spend; and `asyncio.run` means E is
 driven from the CLI eval path, not the async `/api/ask` route.
 
+## System F — query decomposition (multi-hop)
+
+System F decomposes a multi-hop question into 2–4 single-hop sub-questions (one
+`instructor`-typed LLM call), retrieves for the original + each sub-question over
+the **same** hybrid+rerank pipeline as A/B, RRF-fuses the results, and answers
+once. Because the retriever is held constant, F-vs-A isolates the *decomposition*
+effect — unlike E, which swaps the whole retriever. It's the decomposition rung
+of the comparison study, distinct from B's iterative reformulation loop. No new
+deps, no keys (Bedrock only).
+
+```bash
+docker compose run --rm api python -m src.cli run-experiment \
+  --name decomp --systems A,B,F --datasets multihop --limit 20
+docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
+```
+
 ## Implementation status
 
 | File                                 | Status        | Notes                                                                          |

@@ -1,4 +1,4 @@
-"""Typed schemas for the agent's structured outputs (used by Systems B and D)."""
+"""Typed schemas for the agent's structured outputs (used by Systems B, D, F)."""
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -20,5 +20,15 @@ class AgentDecision(BaseModel):
     final_answer: str | None = Field(
         default=None,
         description="Required if action=answer. The final response.",
+    )
+    reasoning: str = Field(description="Brief justification, <=30 words.")
+
+
+class Decomposition(BaseModel):
+    """Single-hop sub-questions that together answer a multi-hop question (System F)."""
+
+    subquestions: list[str] = Field(
+        default_factory=list,
+        description="2-4 standalone single-hop sub-questions; empty if already single-hop.",
     )
     reasoning: str = Field(description="Brief justification, <=30 words.")

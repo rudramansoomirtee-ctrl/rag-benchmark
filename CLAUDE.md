@@ -119,6 +119,19 @@ deps (openai/cohere/tiktoken/umap-learn/rank-bm25/tenacity), uses an external
 rerank API (Cohere), and bridges async→sync via `asyncio.run`. These apply to
 System E only; A-D remain dep-light, local, and sync.
 
+### System F (query decomposition) — `systems/system_f.py`
+
+Multi-hop decomposition baseline. One LLM call (`instructor` → `Decomposition`)
+splits the query into 2-4 single-hop sub-questions; F retrieves for the original
++ each sub-question over the **same** `retrieve()` as A/B, RRF-fuses the lists
+(deduped by chunk_id), and answers once with the fused top-`top_k` context.
+- Retriever held constant ⇒ F-vs-A isolates the *decomposition* effect (vs E,
+  which changes the retriever). Distinct from B: parallel decompose+fuse, not an
+  iterative reformulation loop.
+- Single-hop ⇒ empty decomposition ⇒ F reduces to A's retrieval.
+- `n_steps` = number of retrievals (1 + #sub-questions); tokens/cost sum the
+  decompose + answer calls (properly tracked, unlike B). No HHEM gate.
+
 ## Evaluation pipeline
 
 ### 1. Ingest (one-time per dataset)

@@ -26,6 +26,7 @@ from src.systems.system_b import SystemB
 from src.systems.system_c import SystemC
 from src.systems.system_d import SystemD
 from src.systems.system_e import SystemE
+from src.systems.system_f import SystemF
 
 
 SYSTEM_REGISTRY: dict[str, type[System]] = {
@@ -34,6 +35,7 @@ SYSTEM_REGISTRY: dict[str, type[System]] = {
     "C": SystemC,
     "D": SystemD,
     "E": SystemE,
+    "F": SystemF,
 }
 
 
