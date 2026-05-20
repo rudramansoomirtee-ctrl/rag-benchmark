@@ -4,7 +4,7 @@ Repo memory for Claude Code sessions. Read this before editing.
 
 ## What this is
 
-Reproducible Dockerised benchmark of four RAG architectures (Systems A/B/C/D)
+Reproducible Dockerised benchmark of RAG systems (A naive, B agentic, E vendored-OpenRag, F decomposition)
 against MultiHop-RAG and RAGTruth, with every metric persisted to Postgres
 and every span traced to Phoenix. Single-user research tool for a dissertation
 — **not** a production service.
@@ -45,11 +45,15 @@ api/src/
 ├── faithfulness/hhem.py        # vectara/hallucination_evaluation_model
 ├── llm/client.py               # LiteLLM wrapper
 ├── retrieval/{embeddings,opensearch_client,indexer}.py
-└── systems/{base,schemas,system_a,system_b,system_c,system_d}.py
+└── systems/{base,schemas,system_a,system_b,system_e,system_f}.py
 notebooks/analysis.py           # Marimo notebook for Chapter 4 figures
 ```
 
-## The four systems
+## The systems
+
+Lineup: **A** (naive), **B** (agentic loop), **E** (vendored OpenRag — different
+retriever), **F** (query decomposition). Faithfulness (HHEM) is computed for every
+run, not by a system — the old passive Systems C/D were folded into that metric.
 
 All implement `systems/base.py:System` protocol → `answer(query: str) -> RunResult`.
 
@@ -66,19 +70,16 @@ n_steps, tokens_in, tokens_out, latency_ms, cost_usd, phoenix_trace_id`.
 | Top-k            | `settings.top_k = 5`                                          |
 | Trace capture    | `tracing.py:init_tracing` — auto-instruments LangChain + LiteLLM via openinference |
 
-### Per-system spec
+### Per-system spec (A and B; E and F have their own sections below)
 
-| Property              | A          | B                              | C              | D                              |
-|-----------------------|------------|--------------------------------|----------------|--------------------------------|
-| Pattern               | naive      | agent loop (LangGraph)         | A + HHEM gate  | B + HHEM gate                  |
-| Wrapper / composition | —          | —                              | wraps SystemA  | wraps SystemB                  |
-| Retrieve              | once       | each loop iter                 | once (via A)   | each loop iter (via B)         |
-| LLM calls per query   | 1          | N × decide + (final synthesis) | 1              | N × decide                     |
-| Reformulates query    | no         | yes (typed via `instructor`)   | no             | yes                            |
-| Max steps             | n/a        | `settings.max_agent_steps = 5` | n/a            | 5                              |
-| HHEM faithfulness     | no         | no                             | yes            | yes                            |
-| Sets `flagged`        | `None`     | `None`                         | yes            | yes                            |
-| Cost accuracy         | ✅         | ⚠️ tokens/cost hardcoded to 0  | ✅ (inherits A) | ⚠️ inherits B's gap            |
+| Property              | A          | B                              |
+|-----------------------|------------|--------------------------------|
+| Pattern               | naive      | agent loop (LangGraph)         |
+| Retrieve              | once       | each loop iter                 |
+| LLM calls per query   | 1          | N × decide + (final synthesis) |
+| Reformulates query    | no         | yes (typed via `instructor`)   |
+| Max steps             | n/a        | `settings.max_agent_steps = 5` |
+| Cost accuracy         | ✅         | ⚠️ tokens/cost hardcoded to 0  |
 
 **System B agent state machine** (`systems/system_b.py`):
 ```
@@ -93,11 +94,13 @@ RETRIEVE → DECIDE ──(reformulate)──┐
   cannot happen.
 - Termination: `action == ANSWER` **or** `n_steps >= max_agent_steps`.
 
-**HHEM gate (Systems C and D)**:
-- Re-fetches chunk text from OpenSearch via `mget(ids=retrieved_chunk_ids)`
-- Builds `premise = "\n\n".join(chunk texts)`
-- Calls `faithfulness/hhem.py:score([(premise, answer)])` → 0..1 float
-- `flagged = score < settings.hhem_threshold` (default 0.5; set by calibration)
+**Faithfulness — HHEM on every run** (`evaluation/runner.py:_faithfulness`, not a system):
+- Computed for **every** system's run (A/B/E/F) ⇒ faithfulness is a column for all.
+- Re-fetches retrieved chunk text via `mget(retrieved_chunk_ids)`, builds
+  `premise = "\n\n".join(texts)`, scores `faithfulness/hhem.py:score([(premise, answer)])`.
+- `flagged = score < settings.hhem_threshold`. Empty retrieval / HHEM error →
+  `(None, None)` and the run still persists.
+- Replaces the old passive Systems C/D, which only attached this score to A/B.
 
 ### System E (vendored OpenRag) — `systems/system_e.py`
 
@@ -130,7 +133,7 @@ splits the query into 2-4 single-hop sub-questions; F retrieves for the original
   iterative reformulation loop.
 - Single-hop ⇒ empty decomposition ⇒ F reduces to A's retrieval.
 - `n_steps` = number of retrievals (1 + #sub-questions); tokens/cost sum the
-  decompose + answer calls (properly tracked, unlike B). No HHEM gate.
+  decompose + answer calls (properly tracked, unlike B).
 
 ## Evaluation pipeline
 
@@ -255,8 +258,8 @@ hhem_threshold          = 0.5                    # overridden post-calibration
 
 - **Lazy singletons** via `@lru_cache(maxsize=1)` for models and OpenSearch
   client. Don't instantiate models at import time.
-- **Composition over inheritance** for systems (C wraps A; D wraps B). Do not
-  inherit from `SystemA`/`SystemB`.
+- **Composition over inheritance** for systems. Don't subclass one system from
+  another; share via the `retrieve()` / `generate()` helpers.
 - **Sync** everything except FastAPI route signatures. No `asyncio` work
   inside systems or evaluation code.
 - **Idempotency** is a hard requirement: ingest, index, run-experiment,
@@ -268,13 +271,10 @@ hhem_threshold          = 0.5                    # overridden post-calibration
 
 | # | Where                                  | What                                                       | Impact                            |
 |---|----------------------------------------|------------------------------------------------------------|-----------------------------------|
-| 1 | `systems/system_b.py:131-134`          | `tokens_in/out`, `cost_usd` hardcoded to 0                 | B/D `$/correct` always reads 0    |
-| 2 | `systems/system_c.py`, `system_d.py`   | `mget(ids=[])` raises on empty retrieval                   | C/D crash on no-result queries    |
-| 3 | `systems/system_c.py` ↔ `system_d.py`  | HHEM-gate code duplicated verbatim                         | Drift risk; trivial to extract    |
-| 4 | All systems                            | `phoenix_trace_id` always `None`                           | No SQL→Phoenix link from `runs`   |
-| 5 | `evaluation/runner.py:119`             | Uses `contains_match` for MultiHop                         | Not paper-spec; inflates accuracy |
-| 6 | `cli.py:135`                           | Accuracy denominator includes `is_correct IS NULL` rows    | Underreports accuracy             |
-| 7 | `retrieval/opensearch_client.py:89`    | `hybrid_search` falls back to `knn_search`                 | True BM25+kNN hybrid is a TODO    |
+| 1 | `systems/system_b.py`                  | `cost_usd` can read 0 if instructor raw lacks response_cost | B `$/correct` may read 0          |
+| 2 | All systems                            | `phoenix_trace_id` always `None`                           | No SQL→Phoenix link from `runs`   |
+| 3 | `evaluation/runner.py`                 | Uses `contains_match` for MultiHop                         | Not paper-spec; inflates accuracy |
+| 4 | `cli.py:compute_metrics`               | Accuracy denominator includes `is_correct IS NULL` rows    | Underreports accuracy             |
 
 Fix only when explicitly asked. When asked, fix only the requested item.
 
@@ -300,7 +300,7 @@ docker compose run --rm api python -m src.cli healthcheck
 docker compose run --rm api python -m src.cli ingest-dataset {multihop|ragtruth}
 docker compose run --rm api python -m src.cli index-corpus multihop
 docker compose run --rm api python -m src.cli calibrate
-docker compose run --rm api python -m src.cli run-experiment --name X --systems A,B,C,D --datasets multihop
+docker compose run --rm api python -m src.cli run-experiment --name X --systems A,B,E,F --datasets multihop
 docker compose run --rm api python -m src.cli compute-metrics --experiment N
 docker compose run --rm api python -m src.cli export --experiment N
 ```

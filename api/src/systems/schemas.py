@@ -1,4 +1,4 @@
-"""Typed schemas for the agent's structured outputs (used by Systems B, D, F)."""
+"""Typed schemas for the agent's structured outputs (used by Systems B and F)."""
 from enum import Enum
 
 from pydantic import BaseModel, Field
