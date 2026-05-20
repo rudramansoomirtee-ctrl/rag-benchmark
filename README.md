@@ -91,6 +91,38 @@ marimo edit notebooks/analysis.py
 
 ---
 
+## System E — OpenRag
+
+System E benchmarks the external [OpenRag](../OpenRag) (`ultimate_rag`) retriever
+under this harness's methodology, so it sits on the same A–E comparison as the
+built-in systems. It calls a running OpenRag server over HTTP (`POST /query`) —
+its real multi-strategy + neural-rerank pipeline — then recovers each retrieved
+chunk's article URL by matching the text back to the MultiHop corpus in Postgres
+(OpenRag returns chunk text without a source URL). Answer generation reuses the
+shared Bedrock LLM, so E differs from A only in retrieval.
+
+It is **not** a reproduction of OpenRag's published 72.89% Recall@10: that number
+uses a different metric (substring-of-evidence vs. URL-set membership), chunk
+granularity (sub-article vs. whole-article), and k (10 vs. 5). System E gives a
+*fair, like-for-like* comparison inside this benchmark instead.
+
+```bash
+# 1. Run an OpenRag server with the same MultiHop corpus ingested (separate repo,
+#    needs OPENAI_API_KEY + COHERE_API_KEY). See OpenRag/README.md.
+# 2. Point this stack at it (must be reachable from the api container):
+echo "OPENRAG_URL=http://host.docker.internal:8000" >> .env
+# 3. Ensure the corpus is in Postgres here (needed for URL recovery):
+docker compose run --rm api python -m src.cli ingest-dataset multihop
+# 4. Smoke-test, then run:
+docker compose run --rm api python -m src.cli run-experiment \
+  --name openrag --systems E --datasets multihop --limit 5
+docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
+```
+
+Caveats: RAPTOR summary nodes / snippets not contained in any single article
+recover no URL and are skipped; `cost_usd` covers only the answer call, not
+OpenRag's retrieval-side OpenAI/Cohere spend.
+
 ## Implementation status
 
 | File                                 | Status        | Notes                                                                          |

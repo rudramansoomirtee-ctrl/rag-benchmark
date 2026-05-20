@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     retrieval_pool: int = 20
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+    # OpenRag (System E): external ultimate_rag retrieval server.
+    # Must be reachable from the api container — inside docker compose use a
+    # service name or host.docker.internal, not localhost.
+    openrag_url: str = "http://localhost:8000"
+    openrag_mode: str = "standard"
+
     # Agent
     max_agent_steps: int = 5
 
