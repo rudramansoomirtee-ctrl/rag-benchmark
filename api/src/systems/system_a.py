@@ -1,14 +1,29 @@
-"""System A: naive RAG. Embed query -> retrieve top-k -> answer once.
+"""System A: naive RAG. Embed query -> hybrid retrieve+rerank -> answer once.
 
-No reformulation, no faithfulness gate. This is the baseline.
+No reformulation, no faithfulness gate. This is the single-shot baseline.
+Retrieval uses the same hybrid+rerank pipeline as Systems B/C/D so that the
+A/B/C/D comparison isolates answer-generation strategy and faithfulness
+filtering, not retrieval quality.
 """
 import time
 
-from src.config import settings
 from src.llm.client import generate
-from src.retrieval.embeddings import embed_one
-from src.retrieval.opensearch_client import knn_search
+from src.retrieval.retrieve import retrieve
 from src.systems.base import RunResult
+
+
+ANSWER_SYSTEM_PROMPT = (
+    "You are answering a multi-hop question over a corpus of news articles.\n"
+    "\n"
+    "Rules:\n"
+    "1. Use ONLY the provided context. If the answer is not in the context, "
+    "say 'The provided context does not contain the answer.' Do not invent.\n"
+    "2. Multi-hop questions require synthesising facts from MULTIPLE chunks. "
+    "Connect the dots explicitly.\n"
+    "3. Cite the chunk IDs in square brackets after each claim, e.g. "
+    "'X joined the board in 2023 [chunk-7], replacing Y [chunk-12].'\n"
+    "4. Be direct and concise. No hedging openers like 'Based on the context'."
+)
 
 
 class SystemA:
@@ -16,16 +31,12 @@ class SystemA:
 
     def answer(self, query: str) -> RunResult:
         t0 = time.time()
-        qvec = embed_one(query)
-        hits = knn_search(qvec, top_k=settings.top_k)
+        hits = retrieve(query)
         context = "\n\n".join(f"[{h['chunk_id']}] {h['text']}" for h in hits)
 
         result = generate(
             messages=[
-                {
-                    "role": "system",
-                    "content": "Answer using only the provided context. Cite chunk IDs in brackets.",
-                },
+                {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
             ]
         )

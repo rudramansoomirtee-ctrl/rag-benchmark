@@ -86,23 +86,50 @@ def knn_search(query_vector: list[float], top_k: int | None = None) -> list[dict
     ]
 
 
-def hybrid_search(query_text: str, query_vector: list[float], top_k: int | None = None) -> list[dict]:
-    """BM25 + k-NN hybrid. Both subqueries return top_k, OpenSearch reciprocally combines."""
+def bm25_search(query_text: str, top_k: int | None = None) -> list[dict]:
+    """Lexical BM25 search over the chunk text field."""
     top_k = top_k or settings.top_k
     body = {
         "size": top_k,
-        "query": {
-            "hybrid": {
-                "queries": [
-                    {"match": {"text": query_text}},
-                    {"knn": {"embedding": {"vector": query_vector, "k": top_k}}},
-                ]
-            }
-        },
+        "query": {"match": {"text": query_text}},
         "_source": ["chunk_id", "text", "dataset", "metadata"],
     }
-    # Note: the `hybrid` query type requires the OpenSearch ML plugin's
-    # neural-search pipeline. For simplicity, default to knn_search and
-    # add a search pipeline later if you want true hybrid scoring.
-    # Falling back to k-NN here keeps the smoke test green.
-    return knn_search(query_vector, top_k)
+    resp = get_client().search(index=settings.opensearch_index, body=body)
+    return [
+        {**hit["_source"], "score": hit["_score"]}
+        for hit in resp["hits"]["hits"]
+    ]
+
+
+def hybrid_search(
+    query_text: str,
+    query_vector: list[float],
+    top_k: int | None = None,
+    rrf_k: int = 60,
+) -> list[dict]:
+    """BM25 + dense kNN combined client-side with Reciprocal Rank Fusion.
+
+    RRF score per chunk = sum over rankings of 1/(rrf_k + rank). This is the
+    standard fusion used in production hybrid pipelines (Lin et al. 2024);
+    doing it client-side avoids the OpenSearch neural-search plugin entirely
+    and keeps scoring independent of either subquery's absolute score scale.
+    """
+    top_k = top_k or settings.top_k
+    pool = max(top_k * 4, settings.retrieval_pool)
+
+    bm25 = bm25_search(query_text, top_k=pool)
+    knn = knn_search(query_vector, top_k=pool)
+
+    fused: dict[str, float] = {}
+    chunks: dict[str, dict] = {}
+    for rank, h in enumerate(bm25, start=1):
+        cid = h["chunk_id"]
+        fused[cid] = fused.get(cid, 0.0) + 1.0 / (rrf_k + rank)
+        chunks[cid] = h
+    for rank, h in enumerate(knn, start=1):
+        cid = h["chunk_id"]
+        fused[cid] = fused.get(cid, 0.0) + 1.0 / (rrf_k + rank)
+        chunks.setdefault(cid, h)
+
+    ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
+    return [{**chunks[cid], "score": score} for cid, score in ordered[:top_k]]
