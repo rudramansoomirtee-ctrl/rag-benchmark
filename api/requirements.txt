@@ -15,6 +15,17 @@ alembic==1.13.*
 opensearch-py==2.*
 sentence-transformers==3.*
 
+# System E — vendored OpenRag (ultimate_rag) in-process retrieval pipeline.
+# RAPTOR build (OpenAI embeddings + gpt-4o-mini summaries), multi-strategy
+# retrieval, and Cohere neural reranking. Needs OPENAI_API_KEY + COHERE_API_KEY.
+openai>=1.50.0
+cohere>=5.0.0
+tiktoken>=0.5.1
+umap-learn>=0.5.5
+rank-bm25>=0.2.2
+tenacity>=8.2.3
+tqdm>=4.66.0
+
 # LLM gateway (Bedrock + cost tracking)
 litellm>=1.65.0,<2.0
 boto3>=1.35,<2.0

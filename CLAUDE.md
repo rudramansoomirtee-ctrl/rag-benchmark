@@ -99,6 +99,26 @@ RETRIEVE → DECIDE ──(reformulate)──┐
 - Calls `faithfulness/hhem.py:score([(premise, answer)])` → 0..1 float
 - `flagged = score < settings.hhem_threshold` (default 0.5; set by calibration)
 
+### System E (vendored OpenRag) — `systems/system_e.py`
+
+OpenRag's `ultimate_rag` engine is vendored as top-level packages
+(`api/ultimate_rag/`, `api/knowledge_base/`) and called **in-process** — no HTTP.
+- Retrieves over an **in-memory RAPTOR forest** (not OpenSearch), built once via
+  `cli.py:build-openrag-index` and persisted to `settings.openrag_tree_dir`
+  (`/data/openrag_trees`). Loaded lazily by an `lru_cache` singleton.
+- All `ultimate_rag` / `knowledge_base` imports are **deferred inside the
+  singleton/build fn** so importing `system_e` (which `runner.py` does next to
+  A-D) never needs OpenRag's deps or a built tree. Keep them lazy.
+- OpenRag returns chunk text without a URL → System E recovers the article URL by
+  text-containment against the Postgres corpus, so it's scored URL-level like A-D.
+- Answer generation reuses System A's prompt + the shared Bedrock LLM.
+- `cost_usd` covers only the answer call (OpenRag's OpenAI/Cohere spend is external).
+
+System E **deliberately waives** three invariants below (do not "fix"): it adds
+deps (openai/cohere/tiktoken/umap-learn/rank-bm25/tenacity), uses an external
+rerank API (Cohere), and bridges async→sync via `asyncio.run`. These apply to
+System E only; A-D remain dep-light, local, and sync.
+
 ## Evaluation pipeline
 
 ### 1. Ingest (one-time per dataset)

@@ -1,38 +1,40 @@
-"""System E: OpenRag (ultimate_rag) plugged in as a benchmarked system.
+"""System E: vendored OpenRag (ultimate_rag) as a benchmarked system, in-process.
 
-Retrieval is delegated to a running OpenRag server — its real multi-strategy
-pipeline (HyDE + BM25 + query-decomposition + RAPTOR) with neural reranking.
-We call it over HTTP exactly as OpenRag's own benchmark does (POST /query), so
-System E exercises OpenRag's actual implementation, not a reimplementation.
+The OpenRag engine lives in the repo as the top-level `ultimate_rag` /
+`knowledge_base` packages. System E calls its `UltimateRetriever` directly —
+no HTTP, no separate service — exercising the real multi-strategy pipeline
+(HyDE + BM25 + query-decomposition + RAPTOR) with Cohere neural reranking.
 
-Scoring alignment: this harness scores retrieval by URL-keyed chunk IDs
-(chunks.external_id = article url), but OpenRag returns chunk *text* with no
-source URL — both of its ingest paths drop it, which is why OpenRag's own eval
-substring-matches evidence text instead of comparing IDs. We therefore recover
-each retrieved chunk's article URL by matching its text back to the MultiHop
-corpus already in Postgres, then dedupe to a URL list (preserving OpenRag's
-reranked order). System E is then measured by the same recall@k / precision@k
-as Systems A-D.
+Index: OpenRag retrieves over an in-memory RAPTOR forest, not OpenSearch. The
+forest is built once from the MultiHop corpus and persisted to disk
+(`build-openrag-index`); System E loads it lazily on first query.
 
-Answer generation reuses the shared Bedrock LLM and System A's prompt, so the
-A-E comparison isolates retrieval strategy, not the generator.
+Scoring alignment: this harness scores retrieval by URL-keyed chunk IDs, but
+OpenRag returns chunk *text* with no source URL. We recover each chunk's article
+URL by matching its text back to the MultiHop corpus already in Postgres, then
+dedupe (preserving OpenRag's reranked order) so System E is measured by the same
+recall@k / precision@k as Systems A-D. Answer generation reuses the shared
+Bedrock LLM and System A's prompt, so E differs from A only in retrieval.
+
+Heavy imports (ultimate_rag / knowledge_base, which pull openai/cohere/umap/…)
+are deferred into the lazy singleton below, so importing this module — which
+`runner.py` does alongside A-D — never requires OpenRag's deps or a built tree.
 
 Caveats:
-  - RAPTOR summary nodes (and any snippet not contained in a single article)
-    recover no URL and are skipped — they cannot map to one article anyway.
-  - cost_usd reflects only the answer-generation call; OpenRag's retrieval-side
-    spend (OpenAI embeddings, Cohere rerank, HyDE/decomp LLM calls) happens on
-    the OpenRag server and is not visible to LiteLLM here.
+  - RAPTOR summary nodes / snippets not contained in a single article recover no
+    URL and are skipped — they cannot map to one article anyway.
+  - cost_usd covers only the answer call; OpenRag's retrieval-side OpenAI/Cohere
+    spend is not visible to LiteLLM.
 
-Prerequisites: an OpenRag server reachable at settings.openrag_url with the same
-MultiHop corpus ingested, and `ingest-dataset multihop` already run here (so the
-corpus bodies exist in Postgres for URL recovery).
+Prerequisites: OPENAI_API_KEY + COHERE_API_KEY in the api container,
+`ingest-dataset multihop`, then `build-openrag-index multihop`.
 """
+import asyncio
 import re
+import sys
 import time
 from functools import lru_cache
 
-import httpx
 from sqlalchemy import select
 
 from src.config import settings
@@ -71,36 +73,133 @@ def _recover_url(chunk_text: str) -> str | None:
     return None
 
 
+def _install_pickle_shim() -> None:
+    """Legacy RAPTOR pickles reference `raptor.*`; the module is `knowledge_base.raptor`.
+
+    Aliasing keeps pickle.load happy for trees saved/loaded across that path.
+    """
+    if "raptor" in sys.modules:
+        return
+    try:
+        from knowledge_base import raptor as kb_raptor
+
+        sys.modules["raptor"] = kb_raptor
+        if hasattr(kb_raptor, "tree_structures"):
+            sys.modules["raptor.tree_structures"] = kb_raptor.tree_structures
+    except Exception:
+        pass
+
+
+def _run_async(coro):
+    """Run a coroutine from sync code, whether or not a loop is already running."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(asyncio.run, coro).result()
+
+
+@lru_cache(maxsize=1)
+def _get_retriever():
+    """Load the persisted RAPTOR forest once and build the OpenRag retriever."""
+    _install_pickle_shim()
+    from ultimate_rag.agents.observations import ObservationCollector
+    from ultimate_rag.core.node import TreeForest
+    from ultimate_rag.core.persistence import TreePersistence
+    from ultimate_rag.graph.graph import KnowledgeGraph
+    from ultimate_rag.retrieval.retriever import RetrievalConfig, UltimateRetriever
+
+    tree = TreePersistence(local_dir=settings.openrag_tree_dir).load_tree(
+        settings.openrag_tree_name
+    )
+    if tree is None:
+        raise RuntimeError(
+            f"OpenRag tree '{settings.openrag_tree_name}' not found in "
+            f"{settings.openrag_tree_dir}. Build it first: "
+            "python -m src.cli build-openrag-index multihop"
+        )
+
+    forest = TreeForest(forest_id="default", name="System E forest")
+    forest.add_tree(tree)
+    return UltimateRetriever(
+        forest=forest,
+        graph=KnowledgeGraph(),
+        observation_collector=ObservationCollector(),
+        config=RetrievalConfig(),
+    )
+
+
+def build_index(
+    dataset: str = "multihop",
+    num_layers: int | None = None,
+    target_top: int | None = None,
+) -> int:
+    """Build OpenRag's RAPTOR forest from a dataset's corpus and persist it.
+
+    Reads article bodies from Postgres (already loaded by `ingest-dataset`),
+    runs RAPTOR clustering + summarisation (OpenAI), and saves a pickle under
+    settings.openrag_tree_dir. Returns the number of source articles. One-time
+    and resumable-by-rerun (re-running rebuilds the tree).
+    """
+    _install_pickle_shim()
+    from ultimate_rag.core.persistence import TreePersistence
+    from ultimate_rag.raptor.tree_building import RaptorTreeBuilder, TreeBuildConfig
+
+    session = get_session()
+    try:
+        rows = session.scalars(
+            select(Chunk).where(Chunk.dataset == dataset).order_by(Chunk.id)
+        ).all()
+        texts = [c.text for c in rows]
+    finally:
+        session.close()
+
+    if not texts:
+        raise RuntimeError(
+            f"no corpus chunks for dataset '{dataset}' — run `ingest-dataset {dataset}` first"
+        )
+
+    config = TreeBuildConfig(
+        num_layers=num_layers or settings.openrag_num_layers,
+        target_top_nodes=target_top or settings.openrag_target_top_nodes,
+    )
+    tree = RaptorTreeBuilder(config).build_from_texts(
+        texts, tree_name=settings.openrag_tree_name
+    )
+    TreePersistence(local_dir=settings.openrag_tree_dir).save_tree(tree, to_local=True)
+    return len(texts)
+
+
 class SystemE:
     name = "E"
 
     def answer(self, query: str) -> RunResult:
-        t0 = time.time()
+        from ultimate_rag.retrieval.retriever import RetrievalMode
 
-        resp = httpx.post(
-            f"{settings.openrag_url}/query",
-            json={
-                "query": query,
-                "top_k": settings.retrieval_pool,
-                "mode": settings.openrag_mode,
-                "include_graph": False,
-            },
-            timeout=120.0,
+        t0 = time.time()
+        retriever = _get_retriever()
+        result = _run_async(
+            retriever.retrieve(
+                query=query,
+                top_k=settings.retrieval_pool,
+                mode=RetrievalMode(settings.openrag_mode),
+            )
         )
-        resp.raise_for_status()
-        hits = resp.json().get("results", [])
 
         retrieved_urls: list[str] = []
         context_parts: list[str] = []
-        for h in hits:
-            text = h.get("text", "")
+        for chunk in result.chunks:
+            text = getattr(chunk, "text", "") or ""
             url = _recover_url(text)
             context_parts.append(f"[{url or 'unmapped'}] {text}")
             if url and url not in retrieved_urls:
                 retrieved_urls.append(url)
 
         context = "\n\n".join(context_parts)
-        result = generate(
+        gen = generate(
             messages=[
                 {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
@@ -108,13 +207,13 @@ class SystemE:
         )
 
         return RunResult(
-            answer=result["content"],
+            answer=gen["content"],
             retrieved_chunk_ids=retrieved_urls,
             hhem_score=None,
             flagged=None,
             n_steps=1,
-            tokens_in=result["tokens_in"],
-            tokens_out=result["tokens_out"],
+            tokens_in=gen["tokens_in"],
+            tokens_out=gen["tokens_out"],
             latency_ms=int((time.time() - t0) * 1000),
-            cost_usd=result["cost_usd"],
+            cost_usd=gen["cost_usd"],
         )
