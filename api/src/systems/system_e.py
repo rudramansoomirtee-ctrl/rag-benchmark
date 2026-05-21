@@ -13,12 +13,12 @@ Scoring alignment: this harness scores retrieval by URL-keyed chunk IDs, but
 OpenRag returns chunk *text* with no source URL. We recover each chunk's article
 URL by matching its text back to the MultiHop corpus already in Postgres, then
 dedupe (preserving OpenRag's reranked order) so System E is measured by the same
-recall@k / precision@k as Systems A-D. Answer generation reuses the shared
+recall@k / precision@k as Systems A/B/F. Answer generation reuses the shared
 Bedrock LLM and System A's prompt, so E differs from A only in retrieval.
 
 Heavy imports (ultimate_rag / knowledge_base, which pull openai/cohere/umap/…)
 are deferred into the lazy singleton below, so importing this module — which
-`runner.py` does alongside A-D — never requires OpenRag's deps or a built tree.
+`runner.py` does alongside A/B/F — never requires OpenRag's deps or a built tree.
 
 Caveats:
   - RAPTOR summary nodes / snippets not contained in a single article recover no

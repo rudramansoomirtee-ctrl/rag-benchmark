@@ -1,8 +1,11 @@
 """Unified retrieval entry point: hybrid first-stage + cross-encoder rerank.
 
-All four systems (A/B/C/D) call this so the retrieval pipeline is constant
-across the benchmark. The four systems differ in answer generation and
-faithfulness filtering, not in how they retrieve.
+Systems A, B, and F all call this, so their retrieval pipeline is identical.
+Differences between them come from orchestration (single-shot vs. agentic loop
+vs. query decomposition), not from how chunks are fetched — which is what lets
+A-vs-B and A-vs-F isolate the *reasoning* strategy. System E deliberately uses
+its own retriever (OpenRag's RAPTOR forest) instead, so A-vs-E isolates the
+*retriever*.
 
 Pipeline per call:
   1. Embed the query (BAAI/llm-embedder)
