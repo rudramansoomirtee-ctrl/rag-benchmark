@@ -23,15 +23,15 @@ from src.evaluation.metrics import exact_match, contains_match
 from src.systems.base import System, RunResult
 from src.systems.system_a import SystemA
 from src.systems.system_b import SystemB
-from src.systems.system_c import SystemC
-from src.systems.system_d import SystemD
+from src.systems.system_e import SystemE
+from src.systems.system_f import SystemF
 
 
 SYSTEM_REGISTRY: dict[str, type[System]] = {
     "A": SystemA,
     "B": SystemB,
-    "C": SystemC,
-    "D": SystemD,
+    "E": SystemE,
+    "F": SystemF,
 }
 
 
@@ -106,6 +106,31 @@ def run_experiment(
         session.close()
 
 
+def _faithfulness(chunk_ids: list[str], answer: str | None) -> tuple[float | None, bool | None]:
+    """HHEM faithfulness of `answer` against its retrieved chunks, for every system.
+
+    Premise = the retrieved chunk texts (re-fetched from OpenSearch). Returns
+    (score, flagged) or (None, None) when there's nothing to score or HHEM errs —
+    a faithfulness miss must never lose the run itself.
+    """
+    if not chunk_ids or not answer:
+        return None, None
+    try:
+        from src.faithfulness.hhem import score as hhem_score
+        from src.retrieval.opensearch_client import get_client
+
+        resp = get_client().mget(index=settings.opensearch_index, body={"ids": chunk_ids})
+        premise = "\n\n".join(
+            d["_source"]["text"] for d in resp["docs"] if d.get("found")
+        )
+        if not premise:
+            return None, None
+        s = hhem_score([(premise, answer)])[0]
+        return s, s < settings.hhem_threshold
+    except Exception:
+        return None, None
+
+
 def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> None:
     """Execute one (system, query) run. Idempotent via UNIQUE constraint upsert."""
     try:
@@ -127,6 +152,7 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
     is_correct = (
         contains_match(result.answer, q.ground_truth) if q.ground_truth else None
     )
+    hhem, flagged = _faithfulness(result.retrieved_chunk_ids, result.answer)
 
     stmt = insert(Run).values(
         experiment_id=exp_id,
@@ -134,8 +160,8 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
         query_id=q.id,
         retrieved_chunk_ids=result.retrieved_chunk_ids,
         answer=result.answer,
-        hhem_score=result.hhem_score,
-        flagged=result.flagged,
+        hhem_score=hhem,
+        flagged=flagged,
         n_steps=result.n_steps,
         tokens_in=result.tokens_in,
         tokens_out=result.tokens_out,

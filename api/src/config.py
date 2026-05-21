@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     retrieval_pool: int = 20
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+    # System E: vendored OpenRag (ultimate_rag) retriever, in-process.
+    # The RAPTOR forest is built once (`build-openrag-index`) and persisted here.
+    openrag_tree_dir: str = "/data/openrag_trees"
+    openrag_tree_name: str = "multihop"
+    openrag_mode: str = "standard"          # fast | standard | thorough
+    openrag_num_layers: int = 5             # RAPTOR hierarchy depth at build time
+    openrag_target_top_nodes: int = 50
+
     # Agent
     max_agent_steps: int = 5
 

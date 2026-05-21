@@ -1,6 +1,6 @@
 # RAG Benchmark Stack
 
-Reproducible Dockerised environment to evaluate Systems A/B/C/D against MultiHop-RAG and RAGTruth.
+Reproducible Dockerised environment to evaluate Systems A/B/E/F against MultiHop-RAG and RAGTruth, with HHEM faithfulness scored on every run.
 
 Four services, one `docker compose up`, all telemetry to Phoenix, all metrics to Postgres.
 
@@ -71,7 +71,7 @@ docker compose exec api python -m src.cli calibrate
 # Run the full eval (resumable — re-run on failure picks up where it left off)
 docker compose exec api python -m src.cli run-experiment \
   --name dissertation-final \
-  --systems A,B,C,D \
+  --systems A,B,E,F \
   --datasets multihop \
   --split eval
 
@@ -91,6 +91,62 @@ marimo edit notebooks/analysis.py
 
 ---
 
+## System E — OpenRag (vendored, in-process)
+
+System E benchmarks the OpenRag (`ultimate_rag`) retriever under this harness's
+methodology, on the same A–E comparison as the built-in systems. OpenRag is
+**vendored into this repo** (`api/ultimate_rag/`, `api/knowledge_base/`) and
+called **in-process** — no separate service, no HTTP. It runs OpenRag's real
+multi-strategy pipeline (HyDE + BM25 + query-decomposition + RAPTOR) with Cohere
+neural reranking, over an in-memory RAPTOR forest built from the MultiHop corpus.
+
+Because OpenRag returns chunk *text* without a source URL, System E recovers each
+chunk's article URL by matching the text back to the MultiHop corpus in Postgres,
+then dedupes — so it's scored by the same recall@k / precision@k as A–D. Answer
+generation reuses the shared Bedrock LLM, so E differs from A only in retrieval.
+
+This is **not** a reproduction of OpenRag's published 72.89% Recall@10 (that uses
+a different metric, chunk granularity, and k=10). It's a *fair, like-for-like*
+comparison inside this benchmark.
+
+```bash
+# 1. OpenRag uses OpenAI (embeddings + gpt-4o-mini summaries) and Cohere (rerank):
+echo "OPENAI_API_KEY=sk-..." >> .env
+echo "COHERE_API_KEY=..."    >> .env
+docker compose build api          # picks up the vendored engine + new deps
+
+# 2. Corpus into Postgres, then build the RAPTOR forest once (~10-30 min + OpenAI
+#    cost; persisted to /data/openrag_trees so reruns reload it):
+docker compose run --rm api python -m src.cli ingest-dataset multihop
+docker compose run --rm api python -m src.cli build-openrag-index multihop
+
+# 3. Smoke-test, then run:
+docker compose run --rm api python -m src.cli run-experiment \
+  --name openrag --systems E --datasets multihop --limit 5
+docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
+```
+
+Caveats: RAPTOR summary nodes / snippets not contained in any single article
+recover no URL and are skipped; `cost_usd` covers only the answer call, not
+OpenRag's retrieval-side OpenAI/Cohere spend; and `asyncio.run` means E is
+driven from the CLI eval path, not the async `/api/ask` route.
+
+## System F — query decomposition (multi-hop)
+
+System F decomposes a multi-hop question into 2–4 single-hop sub-questions (one
+`instructor`-typed LLM call), retrieves for the original + each sub-question over
+the **same** hybrid+rerank pipeline as A/B, RRF-fuses the results, and answers
+once. Because the retriever is held constant, F-vs-A isolates the *decomposition*
+effect — unlike E, which swaps the whole retriever. It's the decomposition rung
+of the comparison study, distinct from B's iterative reformulation loop. No new
+deps, no keys (Bedrock only).
+
+```bash
+docker compose run --rm api python -m src.cli run-experiment \
+  --name decomp --systems A,B,F --datasets multihop --limit 20
+docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
+```
+
 ## Implementation status
 
 | File                                 | Status        | Notes                                                                          |
@@ -98,7 +154,7 @@ marimo edit notebooks/analysis.py
 | `src/datasets/multihop.py`           | implemented   | Loads `corpus` + `MultiHopRAG` HF configs; URL-keyed chunks; idempotent re-run |
 | `src/datasets/ragtruth.py`           | implemented   | `hallucination` derived from non-empty `labels` span list                      |
 | `src/evaluation/runner.py`           | implemented   | Per-query failures persist a stub row so resume skips them                     |
-| `src/systems/system_b.py`            | partial       | Loop runs; `tokens_in/out` and `cost_usd` still 0 — affects B/D `$/correct`    |
+| `src/systems/system_b.py`            | partial       | Loop runs; `tokens_in/out` and `cost_usd` still 0 — affects B `$/correct`      |
 | `src/retrieval/opensearch_client.py` | hybrid stub   | `hybrid_search` falls back to k-NN; needs OS search pipeline or client-side RRF |
 | `src/evaluation/metrics.py`          | done          | Runner uses `contains_match`; switch to `exact_match` for MultiHop paper compliance |
 
@@ -136,16 +192,16 @@ docker compose run --rm api python -m src.cli compute-metrics --experiment 1
 
 # 5. Full run
 docker compose run --rm api python -m src.cli run-experiment \
-  --name dissertation-final --systems A,B,C,D --datasets multihop
+  --name dissertation-final --systems A,B,E,F --datasets multihop
 docker compose run --rm api python -m src.cli compute-metrics --experiment 2
 docker compose run --rm api python -m src.cli export --experiment 2
 ```
 
 ### Known caveats that affect headline numbers
 
-- **B/D cost is under-reported** until `system_b.py` accumulates tokens/cost from the
-  instructor raw response. `$/correct` and `total_cost_usd` for those two systems will
-  read as 0 in the metrics table.
+- **B cost can under-report** if `system_b.py`'s instructor raw response carries no
+  `response_cost`; `$/correct` and `total_cost_usd` for System B then read as 0 in the
+  metrics table.
 - **Accuracy denominator includes failed runs** (rows with `is_correct IS NULL`) in
   `compute-metrics`. Either delete those rows before aggregating, or filter the
   denominator in `cli.py:compute_metrics`.

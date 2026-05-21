@@ -72,6 +72,9 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_REGION: ${AWS_REGION:-eu-west-2}
       LITELLM_MODEL: ${LITELLM_MODEL:-bedrock/anthropic.claude-haiku-4-5-20251001-v1:0}
+      # System E (vendored OpenRag): embeddings + summaries via OpenAI, rerank via Cohere.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
       HF_HOME: /models
       PYTHONUNBUFFERED: "1"
     ports:

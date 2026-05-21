@@ -55,6 +55,22 @@ def index_corpus(name: str):
 
 
 @app.command()
+def build_openrag_index(name: str = "multihop"):
+    """Build & persist the vendored OpenRag RAPTOR forest for System E (one-time).
+
+    Reads the dataset corpus from Postgres, runs RAPTOR (OpenAI embeddings +
+    gpt-4o-mini summaries), and saves a pickle under settings.openrag_tree_dir.
+    Requires OPENAI_API_KEY; re-running rebuilds the tree.
+    """
+    from src.systems.system_e import build_index
+    n = build_index(name)
+    console.print(
+        f"[green]built OpenRag tree[/green] '{settings.openrag_tree_name}' "
+        f"from {n} articles -> {settings.openrag_tree_dir}"
+    )
+
+
+@app.command()
 def calibrate(
     calibration_split: str = "ragtruth.calibration",
     output: str = "/data/results/threshold.json",
