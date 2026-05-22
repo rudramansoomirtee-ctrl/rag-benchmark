@@ -79,6 +79,8 @@ def metrics(exp_id: int):
                 "precision_at_5": m.precision_at_5,
                 "recall_at_5": m.recall_at_5,
                 "accuracy": m.accuracy,
+                "accuracy_exact": m.accuracy_exact,
+                "crag_score": m.crag_score,
                 "avg_faithfulness": m.avg_faithfulness,
                 "pct_flagged": m.pct_flagged,
                 "avg_trajectory_length": m.avg_trajectory_length,

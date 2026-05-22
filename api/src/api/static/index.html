@@ -74,8 +74,8 @@
       <div class="systems">
         <label><input type="radio" name="sys" value="A" checked> A — naive RAG</label>
         <label><input type="radio" name="sys" value="B"> B — agent loop</label>
-        <label><input type="radio" name="sys" value="C"> C — A + HHEM gate</label>
-        <label><input type="radio" name="sys" value="D"> D — B + HHEM gate</label>
+        <label><input type="radio" name="sys" value="E"> E — OpenRag (needs index)</label>
+        <label><input type="radio" name="sys" value="F"> F — decomposition</label>
       </div>
       <label>Query</label>
       <textarea id="query" placeholder="e.g. Which company that Bloomberg covered in 2023 also issued a Q4 earnings warning?"></textarea>
@@ -222,11 +222,12 @@
         <h3>Metrics</h3>
         <table><thead><tr>
           <th>Sys</th><th>DS</th><th>N</th><th>P@5</th><th>R@5</th>
-          <th>Acc</th><th>HHEM</th><th>%flag</th><th>Cost</th><th>$/corr</th>
+          <th>Acc</th><th>Exact</th><th>CRAG</th><th>HHEM</th><th>%flag</th><th>Cost</th><th>$/corr</th>
         </tr></thead><tbody>${mr.map(m => `<tr>
           <td>${m.system}</td><td>${m.dataset}</td><td>${m.n_queries}</td>
           <td>${num(m.precision_at_5)}</td><td>${num(m.recall_at_5)}</td>
-          <td>${num(m.accuracy)}</td><td>${num(m.avg_faithfulness)}</td>
+          <td>${num(m.accuracy)}</td><td>${num(m.accuracy_exact)}</td><td>${num(m.crag_score)}</td>
+          <td>${num(m.avg_faithfulness)}</td>
           <td>${num(m.pct_flagged)}</td><td>$${num(m.total_cost_usd)}</td>
           <td>$${num(m.cost_per_correct, 4)}</td>
         </tr>`).join('')}</tbody></table>` : '<p class="muted">No metrics yet — run compute-metrics.</p>';
