@@ -11,6 +11,9 @@ The runner is resumable: the UNIQUE(experiment_id, system, query_id) constraint
 on `runs` means re-running this picks up where it left off — useful when Bedrock
 throttles mid-eval.
 """
+import logging
+from typing import Callable
+
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from rich.console import Console
@@ -26,10 +29,18 @@ from src.systems.system_b import SystemB
 from src.systems.system_e import SystemE
 from src.systems.system_f import SystemF
 
+logger = logging.getLogger("rag.runner")
 
-SYSTEM_REGISTRY: dict[str, type[System]] = {
+
+# Values are zero-arg factories so a system can be registered under several
+# labels with different hyperparameters. B1/B3/B5 are System B at agent-step
+# budgets 1/3/5 — the iteration sweep, runnable side-by-side in one experiment.
+SYSTEM_REGISTRY: dict[str, Callable[[], System]] = {
     "A": SystemA,
     "B": SystemB,
+    "B1": lambda: SystemB(max_agent_steps=1),
+    "B3": lambda: SystemB(max_agent_steps=3),
+    "B5": lambda: SystemB(max_agent_steps=5),
     "E": SystemE,
     "F": SystemF,
 }
@@ -41,6 +52,9 @@ def run_experiment(
     datasets: list[str],
     split: str = "eval",
     limit: int | None = None,
+    sample: int | None = None,
+    seed: int = 42,
+    stratify: bool = True,
 ) -> int:
     """Run all (system, dataset, query) combinations and persist to `runs`.
 
@@ -50,15 +64,58 @@ def run_experiment(
     session = get_session()
 
     try:
-        # Create or reuse experiment
+        # Load queries, then select. --sample = seeded (optionally stratified by
+        # question_type) random draw → a defensible subset. --limit = first-N, a
+        # quick smoke test only (NOT random). --sample wins if both are given.
+        queries: list[Query] = session.scalars(
+            select(Query).where(Query.dataset.in_(datasets), Query.split == split).order_by(Query.id)
+        ).all()
+
+        selection: dict = {"method": "all", "n": len(queries)}
+        if sample:
+            import random
+            from collections import defaultdict
+            rng = random.Random(seed)
+            if stratify:
+                buckets: dict = defaultdict(list)
+                for q in queries:
+                    buckets[(q.query_metadata or {}).get("question_type") or "_none"].append(q)
+                total = len(queries) or 1
+                picked: list[Query] = []
+                for qs in buckets.values():
+                    k = min(len(qs), max(1, round(sample * len(qs) / total)))
+                    picked.extend(rng.sample(qs, k))
+                rng.shuffle(picked)
+                queries = picked[:sample]
+            else:
+                queries = rng.sample(queries, min(sample, len(queries)))
+            queries.sort(key=lambda q: q.id)
+            if limit:
+                console.print("[yellow]--sample given; ignoring --limit[/yellow]")
+            selection = {
+                "method": "stratified_sample" if stratify else "random_sample",
+                "n": len(queries),
+                "seed": seed,
+                "query_ids": [q.id for q in queries],
+            }
+        elif limit:
+            queries = queries[:limit]
+            selection = {"method": "first_n", "n": len(queries)}
+
         exp = Experiment(
             name=name,
             config_json={
                 "systems": systems,
                 "datasets": datasets,
                 "split": split,
+                "selection": selection,
                 "top_k": settings.top_k,
                 "max_agent_steps": settings.max_agent_steps,
+                "agent_steps_by_system": {
+                    s: (int(s[1:]) if s.startswith("B") and s[1:].isdigit() else settings.max_agent_steps)
+                    for s in systems
+                    if s.startswith("B")
+                },
                 "model": settings.litellm_model,
                 "embedding_model": settings.embedding_model,
             },
@@ -68,16 +125,13 @@ def run_experiment(
         session.refresh(exp)
         exp_id = exp.id
 
-        # Load queries
-        queries: list[Query] = session.scalars(
-            select(Query).where(Query.dataset.in_(datasets), Query.split == split).order_by(Query.id)
-        ).all()
-        if limit:
-            queries = queries[:limit]
-
         console.print(
             f"[bold]Experiment[/bold] [cyan]{name}[/cyan] (id={exp_id}) — "
             f"{len(queries)} queries × {len(systems)} systems = {len(queries) * len(systems)} runs"
+        )
+        logger.info(
+            "experiment '%s' id=%s: %d queries × %d systems (%s); selection=%s",
+            name, exp_id, len(queries), len(systems), ",".join(systems), selection.get("method"),
         )
 
         # Instantiate systems once
@@ -92,6 +146,7 @@ def run_experiment(
             console=console,
         ) as progress:
             for sys_name, system in system_instances.items():
+                logger.info("system %s: %d queries", sys_name, len(queries))
                 task = progress.add_task(f"System {sys_name}", total=len(queries))
                 for q in queries:
                     _run_one(session, exp_id, sys_name, system, q)
@@ -136,7 +191,7 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
     try:
         result: RunResult = system.answer(q.query_text)
     except Exception as e:
-        Console().print(f"[red]System {sys_name} failed on query {q.id}: {e}[/red]")
+        logger.warning("system %s failed on query %s: %s", sys_name, q.id, e)
         # Stub row so the UNIQUE upsert skips this query on resume.
         # Clear with `DELETE FROM runs WHERE answer IS NULL` to retry failures.
         stmt = insert(Run).values(
@@ -172,3 +227,7 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
     ).on_conflict_do_nothing(index_elements=["experiment_id", "system", "query_id"])
     session.execute(stmt)
     session.commit()
+    logger.debug(
+        "%s q%s: correct=%s steps=%s cost=$%.4f %sms",
+        sys_name, q.id, is_correct, result.n_steps, float(result.cost_usd or 0), result.latency_ms,
+    )

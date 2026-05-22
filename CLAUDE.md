@@ -39,9 +39,9 @@ api/src/
 ├── db/
 │   ├── models.py               # 5 SQLAlchemy tables
 │   ├── session.py              # engine + SessionLocal
-│   └── migrations/             # Alembic (single migration: 0001_initial)
+│   └── migrations/             # Alembic (0001_initial, 0002_secondary_metrics)
 ├── datasets/{multihop,ragtruth}.py
-├── evaluation/{runner,metrics,calibration}.py
+├── evaluation/{runner,metrics,calibration,judge}.py
 ├── faithfulness/hhem.py        # vectara/hallucination_evaluation_model
 ├── llm/client.py               # LiteLLM wrapper
 ├── retrieval/{embeddings,opensearch_client,indexer}.py
@@ -78,8 +78,8 @@ n_steps, tokens_in, tokens_out, latency_ms, cost_usd, phoenix_trace_id`.
 | Retrieve              | once       | each loop iter                 |
 | LLM calls per query   | 1          | N × decide + (final synthesis) |
 | Reformulates query    | no         | yes (typed via `instructor`)   |
-| Max steps             | n/a        | `settings.max_agent_steps = 5` |
-| Cost accuracy         | ✅         | ⚠️ tokens/cost hardcoded to 0  |
+| Max steps             | n/a        | per-instance (B1/B3/B5); default `settings.max_agent_steps = 5` |
+| Cost accuracy         | ✅         | ✅ usage tokens + response_cost, falls back to litellm pricing |
 
 **System B agent state machine** (`systems/system_b.py`):
 ```
@@ -92,7 +92,15 @@ RETRIEVE → DECIDE ──(reformulate)──┐
 - Agent decision is a typed Pydantic model `systems/schemas.py:AgentDecision`
   enforcing `action ∈ {reformulate, answer}` via `instructor` → parse failures
   cannot happen.
-- Termination: `action == ANSWER` **or** `n_steps >= max_agent_steps`.
+- Termination: `action == ANSWER` **or** `n_steps >= max_agent_steps`. The budget
+  is **per-instance** (`SystemB(max_agent_steps=…)`, carried in `AgentState`),
+  defaulting to `settings.max_agent_steps`. The decide prompt instructs ANSWER on
+  the final step, so `k=1` degenerates to one retrieve→answer (≈ A) rather than
+  forcing "No answer".
+- **Iteration sweep:** `B1`/`B3`/`B5` in `runner.py:SYSTEM_REGISTRY` are System B at
+  budgets 1/3/5, run side-by-side in one experiment (`--systems B1,B3,B5`) →
+  `compute-metrics` gives a row each = a cost-vs-accuracy curve; `B1` is the
+  no-iteration ablation.
 
 **Faithfulness — HHEM on every run** (`evaluation/runner.py:_faithfulness`, not a system):
 - Computed for **every** system's run (A/B/E/F) ⇒ faithfulness is a column for all.
@@ -106,6 +114,14 @@ RETRIEVE → DECIDE ──(reformulate)──┐
 
 OpenRag's `ultimate_rag` engine is vendored as top-level packages
 (`api/ultimate_rag/`, `api/knowledge_base/`) and called **in-process** — no HTTP.
+
+**E is an uncontrolled SOTA reference, not a controlled comparator.** Versus A it
+changes embeddings (OpenAI), index/units (RAPTOR forest with `gpt-4o-mini` summary
+nodes), retrieval strategy (HyDE+BM25+decomposition) and reranking (Cohere) all at
+once — so an E-vs-A/B/F gap is not attributable to any single factor. E is the
+"strong off-the-shelf stack" yardstick; A/B/F are the controlled contrast (retriever
++ generator fixed, only orchestration varies). Frame it this way in the writing.
+
 - Retrieves over an **in-memory RAPTOR forest** (not OpenSearch), built once via
   `cli.py:build-openrag-index` and persisted to `settings.openrag_tree_dir`
   (`/data/openrag_trees`). Loaded lazily by an `lru_cache` singleton.
@@ -134,6 +150,13 @@ splits the query into 2-4 single-hop sub-questions; F retrieves for the original
 - Single-hop ⇒ empty decomposition ⇒ F reduces to A's retrieval.
 - `n_steps` = number of retrievals (1 + #sub-questions); tokens/cost sum the
   decompose + answer calls (properly tracked, unlike B).
+- **Cite Ammann, Golde & Akbik (2025)**, *Question Decomposition for RAG* (ACL 2025
+  SRW): F mirrors their decomposition + off-the-shelf reranker recipe on
+  MultiHop-RAG (they report MRR@10 +36.7%, F1 +11.6%). They flag *"lack of iterative
+  retrieval … a limitation compared to more adaptive approaches"* → **System B is
+  the iterative comparator they lack**; A/B/F on a fixed retriever isolate
+  naive/iteration/decomposition. This is the study's carve-out vs. their paper.
+  (Verify the quote against the published PDF before quoting verbatim.)
 
 ## Evaluation pipeline
 
@@ -170,6 +193,10 @@ Index settings: `knn.algo_param.ef_search = 100`.
 
 `evaluation/runner.py:run_experiment` →
 - Creates one `experiments` row with the config snapshot.
+- Query selection: `--sample N [--seed S] [--no-stratify]` = seeded random subset,
+  stratified by `question_type` by default, with the exact `query_ids` recorded in
+  `config_json.selection` for reproducibility; `--limit N` = first-N by id (quick
+  smoke test only, **not** a random sample). `--sample` wins if both are passed.
 - For each `(system, query)` pair: calls `system.answer(q.query_text)`,
   scores correctness, upserts a `runs` row.
 - Uses `ON CONFLICT DO NOTHING` against `UNIQUE(experiment_id, system, query_id)`.
@@ -188,7 +215,9 @@ Index settings: `knn.algo_param.ef_search = 100`.
 |--------------------------|--------------------------------------------------------------|
 | `precision_at_5`         | mean over runs of `precision_at_k(retrieved, relevant, 5)`   |
 | `recall_at_5`            | mean over runs of `recall_at_k(retrieved, relevant, 5)`      |
-| `accuracy`               | `sum(is_correct) / n`                                        |
+| `accuracy`               | `sum(is_correct) / n` (primary: `contains_match`)            |
+| `accuracy_exact`         | mean `exact_match` over runs (secondary, stricter)           |
+| `crag_score`             | mean CRAG truthfulness over judged runs (secondary, LLM-judge)|
 | `avg_faithfulness`       | mean HHEM over runs where score is not null                  |
 | `pct_flagged`            | fraction where `flagged = True`                              |
 | `avg_trajectory_length`  | mean `n_steps`                                               |
@@ -204,14 +233,21 @@ Index settings: `knn.algo_param.ef_search = 100`.
 
 ## Correctness scoring
 
-`evaluation/metrics.py` — deliberately **no LLM-as-judge** (deterministic
-for the thesis):
-- `exact_match(predicted, gold)` — normalised (lowercase, punctuation-stripped,
-  whitespace-collapsed) equality.
+Primary correctness is **deterministic** (`evaluation/metrics.py`):
 - `contains_match(predicted, gold)` — normalised gold ⊆ normalised prediction.
+  **This is the primary metric**, used by the runner for all datasets, and it
+  matches the MultiHop-RAG paper (Tang & Yang 2024): gold answers are short
+  factoids (yes/no, entity, before/after) scored by containment in the response.
+- `exact_match(predicted, gold)` — normalised full-string equality; a *stricter*
+  secondary (the paper does **not** require this).
 
-Runner currently uses `contains_match` for all datasets (`runner.py:119`);
-MultiHop paper spec is `exact_match`.
+Secondary, opt-in: a **CRAG LLM-as-judge** (`evaluation/judge.py`, Yang et al. 2024
+rubric perfect/acceptable/missing/incorrect → 1/0.5/0/−1), run post-hoc via
+`cli.py:judge` (idempotent: only judges rows with `answer` and no `llm_judge_label`)
+and aggregated into `metrics.crag_score`. Non-deterministic in principle (run at
+`temperature=0`), which is why it is secondary and never the headline number. The
+judge uses `settings.judge_model` (falls back to `litellm_model`) and is
+provider-agnostic — pair cheap generation with a strong, independent judge.
 
 ## Database schema (`api/src/db/models.py`)
 
@@ -223,11 +259,11 @@ chunks     (id, dataset, external_id, text, metadata JSONB)
 runs       (id, experiment_id→experiments, system, query_id→queries,
             retrieved_chunk_ids JSONB, answer, hhem_score, flagged,
             n_steps, tokens_in, tokens_out, latency_ms, cost_usd,
-            is_correct, phoenix_trace_id, created_at)
+            is_correct, llm_judge_label, phoenix_trace_id, created_at)
 metrics    (id, experiment_id, system, dataset, n_queries,
             precision_at_5, recall_at_5, avg_faithfulness, pct_flagged,
-            avg_trajectory_length, accuracy, total_cost_usd,
-            cost_per_correct, computed_at)
+            avg_trajectory_length, accuracy, accuracy_exact, crag_score,
+            total_cost_usd, cost_per_correct, computed_at)
 ```
 
 Key constraints (load-bearing):
@@ -245,6 +281,7 @@ database_url            = "postgresql+psycopg://rag:ragbench@postgres:5432/ragbe
 opensearch_url          = "http://opensearch:9200"
 phoenix_collector_endpoint = "http://phoenix:6006"
 litellm_model           = "bedrock/anthropic.claude-haiku-4-5-20251001-v1:0"
+judge_model             = None    # LLM-as-judge model; falls back to litellm_model. Lets you pair cheap generation + strong judging
 aws_region              = "eu-west-2"
 embedding_model         = "BAAI/llm-embedder"   # 768-dim
 embedding_dim           = 768
@@ -271,10 +308,11 @@ hhem_threshold          = 0.5                    # overridden post-calibration
 
 | # | Where                                  | What                                                       | Impact                            |
 |---|----------------------------------------|------------------------------------------------------------|-----------------------------------|
-| 1 | `systems/system_b.py`                  | `cost_usd` can read 0 if instructor raw lacks response_cost | B `$/correct` may read 0          |
+| 1 | `systems/system_b.py`                  | ~~`cost_usd` reads 0 if instructor raw lacks response_cost~~ **fixed**: falls back to `litellm.cost_per_token` from usage | resolved (needs model in litellm pricing map) |
 | 2 | All systems                            | `phoenix_trace_id` always `None`                           | No SQL→Phoenix link from `runs`   |
-| 3 | `evaluation/runner.py`                 | Uses `contains_match` for MultiHop                         | Not paper-spec; inflates accuracy |
+| 3 | `evaluation/runner.py`                 | Uses `contains_match` for MultiHop (= paper's containment metric) | OK as primary; `exact_match`/CRAG are stricter secondaries |
 | 4 | `cli.py:compute_metrics`               | Accuracy denominator includes `is_correct IS NULL` rows    | Underreports accuracy             |
+| 5 | `datasets/multihop.py` + indexer       | MultiHop indexed at **article/URL** granularity, not 256-token passages | `retrieval-eval` numbers read higher than & aren't comparable to Tang & Yang Table 5; literal replication needs passage-level chunking + fact→passage gold |
 
 Fix only when explicitly asked. When asked, fix only the requested item.
 
@@ -287,7 +325,11 @@ From the design doc (`rag-benchmark-stack-guide-for llm.md` §2):
 - **No additional vector DB** (Qdrant/Weaviate/LanceDB). OpenSearch mirrors AWS prod.
 - **No LiteLLM proxy container.** SDK is simpler for single-user.
 - **No Prefect/Airflow/Dagster.** The runner is a `for`-loop.
-- **No Ragas/DeepEval/TruLens for retrieval metrics.** LLM-judge is non-deterministic.
+- **No Ragas/DeepEval/TruLens for retrieval metrics.** Retrieval/IR scoring stays
+  deterministic arithmetic. (Exception, added deliberately: a CRAG LLM-as-judge —
+  `evaluation/judge.py` — is now a *secondary* answer-correctness metric alongside
+  the primary `contains_match`. Do **not** let it replace the deterministic primary,
+  and do not remove it as a "reintroduced" anti-pattern.)
 - **No new Python dependencies** without explicit user approval. Stick to `requirements.txt`.
 - **No tests** unless explicitly requested (none exist; not on the dissertation critical path).
 
@@ -301,7 +343,13 @@ docker compose run --rm api python -m src.cli ingest-dataset {multihop|ragtruth}
 docker compose run --rm api python -m src.cli index-corpus multihop
 docker compose run --rm api python -m src.cli calibrate
 docker compose run --rm api python -m src.cli run-experiment --name X --systems A,B,E,F --datasets multihop
+docker compose run --rm api python -m src.cli run-experiment --name smoke --systems A --datasets multihop --limit 20  # quick smoke test (first 20)
+docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,E,F --datasets multihop --sample 500 --seed 42  # defensible stratified subset
+docker compose run --rm api python -m src.cli run-experiment --name ksweep --systems B1,B3,B5 --datasets multihop  # B iteration sweep
 docker compose run --rm api python -m src.cli compute-metrics --experiment N
+docker compose run --rm api python -m src.cli judge --experiment N            # CRAG LLM-as-judge (post-hoc, resumable)
+docker compose run --rm api python -m src.cli metrics-by-type --experiment N  # accuracy by question type
+docker compose run --rm api python -m src.cli retrieval-eval --dataset multihop --k 10  # MRR@k/MAP@k/Hits@k probe
 docker compose run --rm api python -m src.cli export --experiment N
 ```
 
@@ -309,6 +357,10 @@ docker compose run --rm api python -m src.cli export --experiment N
 
 Three tabs (Ask / Data / Experiments). Covers fast interactive paths only.
 `run-experiment` and `calibrate` deliberately remain CLI-only (too long for HTTP).
+Experiment detail surfaces config/selection, the full metrics row (incl.
+`accuracy_exact`, `crag_score`, steps), a per-question-type table
+(`/api/experiments/{id}/by-type`), and per-run rows (judge label, steps, cost).
+`LOG_LEVEL=DEBUG` (env) gives per-run + per-agent-step logs; Phoenix has the spans.
 
 ### Phoenix at `http://localhost:6006`
 

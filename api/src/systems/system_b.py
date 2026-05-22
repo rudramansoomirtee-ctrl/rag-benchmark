@@ -10,6 +10,7 @@ agent's final iteration — i.e. the evidence it actually used to answer.
 The full per-step trace is on Phoenix; P@k/R@k against the final set is
 what the runner persists.
 """
+import logging
 import time
 
 import instructor
@@ -21,6 +22,8 @@ from src.config import settings
 from src.retrieval.retrieve import retrieve
 from src.systems.base import RunResult
 from src.systems.schemas import AgentAction, AgentDecision
+
+logger = logging.getLogger("rag.system_b")
 
 
 DECIDE_SYSTEM_PROMPT = (
@@ -45,7 +48,9 @@ DECIDE_SYSTEM_PROMPT = (
     "   - Use distinct keywords from the original query — avoid trivial paraphrase.\n"
     "\n"
     "Hard rules:\n"
-    "- If you have used >= 4 of your steps, prefer ANSWER with current evidence.\n"
+    "- You have a fixed step budget, shown each turn as 'Steps taken: n/budget'.\n"
+    "- On your final allowed step (n == budget) you MUST choose ANSWER from the\n"
+    "  current evidence — never REFORMULATE on the final step.\n"
     "- Do not invent facts. If context cannot answer, ANSWER with\n"
     "  'The provided context does not contain the answer.'"
 )
@@ -57,6 +62,7 @@ class AgentState(TypedDict):
     retrieved_chunks: list[dict]
     all_retrieved_ids: list[str]
     n_steps: int
+    max_agent_steps: int
     final_answer: str | None
     tokens_in: int
     tokens_out: int
@@ -87,20 +93,41 @@ def _decide_node(state: AgentState) -> AgentState:
                 "content": (
                     f"Original question: {state['original_query']}\n\n"
                     f"Current context:\n{context}\n\n"
-                    f"Steps taken: {state['n_steps']}/{settings.max_agent_steps}"
+                    f"Steps taken: {state['n_steps']}/{state['max_agent_steps']}"
                 ),
             },
         ],
     )
 
     usage = getattr(raw, "usage", None)
-    if usage is not None:
-        state["tokens_in"] += int(getattr(usage, "prompt_tokens", 0) or 0)
-        state["tokens_out"] += int(getattr(usage, "completion_tokens", 0) or 0)
-    hidden = getattr(raw, "_hidden_params", None) or {}
-    state["cost_usd"] += float(hidden.get("response_cost") or 0.0)
+    tin = int(getattr(usage, "prompt_tokens", 0) or 0) if usage is not None else 0
+    tout = int(getattr(usage, "completion_tokens", 0) or 0) if usage is not None else 0
+    state["tokens_in"] += tin
+    state["tokens_out"] += tout
 
-    if decision.action == AgentAction.ANSWER or state["n_steps"] >= settings.max_agent_steps:
+    # Prefer LiteLLM's response_cost; fall back to its pricing map from the token
+    # counts when instructor's tool-use response omits it (the old gap that left
+    # B's $/correct reading 0 and broke the sweep's cost axis).
+    hidden = getattr(raw, "_hidden_params", None) or {}
+    cost = float(hidden.get("response_cost") or 0.0)
+    if not cost and (tin or tout):
+        try:
+            from litellm import cost_per_token
+            pc, cc = cost_per_token(
+                model=settings.litellm_model, prompt_tokens=tin, completion_tokens=tout
+            )
+            cost = float(pc) + float(cc)
+        except Exception:
+            cost = 0.0
+    state["cost_usd"] += cost
+
+    logger.debug(
+        "B step %s/%s action=%s%s",
+        state["n_steps"], state["max_agent_steps"], decision.action.value,
+        f" reformulate={decision.reformulated_query!r}" if decision.action == AgentAction.REFORMULATE else "",
+    )
+
+    if decision.action == AgentAction.ANSWER or state["n_steps"] >= state["max_agent_steps"]:
         state["final_answer"] = decision.final_answer or "No answer produced."
     else:
         state["current_query"] = decision.reformulated_query or state["current_query"]
@@ -127,7 +154,10 @@ def _build_graph():
 class SystemB:
     name = "B"
 
-    def __init__(self):
+    def __init__(self, max_agent_steps: int | None = None):
+        self.max_agent_steps = (
+            max_agent_steps if max_agent_steps is not None else settings.max_agent_steps
+        )
         self._graph = _build_graph()
 
     def answer(self, query: str) -> RunResult:
@@ -138,6 +168,7 @@ class SystemB:
             "retrieved_chunks": [],
             "all_retrieved_ids": [],
             "n_steps": 0,
+            "max_agent_steps": self.max_agent_steps,
             "final_answer": None,
             "tokens_in": 0,
             "tokens_out": 0,

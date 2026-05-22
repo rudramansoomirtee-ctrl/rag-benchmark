@@ -75,8 +75,15 @@ services:
       # System E (vendored OpenRag): embeddings + summaries via OpenAI, rerank via Cohere.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       COHERE_API_KEY: ${COHERE_API_KEY:-}
+      # CRAG LLM-as-judge model, independent of generation (defaults to LITELLM_MODEL).
+      JUDGE_MODEL: ${JUDGE_MODEL:-}
+      # API keys for cheap generation providers — set only if LITELLM_MODEL/JUDGE_MODEL point at them.
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       HF_HOME: /models
       PYTHONUNBUFFERED: "1"
+      # INFO = milestones + failures; DEBUG = per-run + per-agent-step play-by-play.
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "8000:8000"
     volumes:

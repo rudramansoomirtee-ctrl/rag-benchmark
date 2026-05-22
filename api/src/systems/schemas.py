@@ -32,3 +32,19 @@ class Decomposition(BaseModel):
         description="2-4 standalone single-hop sub-questions; empty if already single-hop.",
     )
     reasoning: str = Field(description="Brief justification, <=30 words.")
+
+
+class JudgeLabel(str, Enum):
+    PERFECT = "perfect"
+    ACCEPTABLE = "acceptable"
+    MISSING = "missing"
+    INCORRECT = "incorrect"
+
+
+class JudgeVerdict(BaseModel):
+    """CRAG-rubric answer-quality label for the secondary LLM-as-judge metric."""
+
+    label: JudgeLabel = Field(
+        description="perfect | acceptable | missing | incorrect, per the CRAG rubric."
+    )
+    reasoning: str = Field(description="Brief justification, <=30 words.")

@@ -91,23 +91,38 @@ marimo edit notebooks/analysis.py
 
 ---
 
-## System E — OpenRag (vendored, in-process)
+## System E — OpenRag (uncontrolled SOTA reference)
 
-System E benchmarks the OpenRag (`ultimate_rag`) retriever under this harness's
-methodology, on the same A–E comparison as the built-in systems. OpenRag is
-**vendored into this repo** (`api/ultimate_rag/`, `api/knowledge_base/`) and
-called **in-process** — no separate service, no HTTP. It runs OpenRag's real
+System E runs the OpenRag (`ultimate_rag`) engine under this harness's metrics.
+OpenRag is **vendored into this repo** (`api/ultimate_rag/`, `api/knowledge_base/`)
+and called **in-process** — no separate service, no HTTP. It runs OpenRag's real
 multi-strategy pipeline (HyDE + BM25 + query-decomposition + RAPTOR) with Cohere
 neural reranking, over an in-memory RAPTOR forest built from the MultiHop corpus.
 
-Because OpenRag returns chunk *text* without a source URL, System E recovers each
-chunk's article URL by matching the text back to the MultiHop corpus in Postgres,
-then dedupes — so it's scored by the same recall@k / precision@k as A–D. Answer
-generation reuses the shared Bedrock LLM, so E differs from A only in retrieval.
+**E is an uncontrolled reference point, not a controlled comparator.** Unlike the
+A/B/F comparison — which holds the retriever *and* the generator LLM fixed so the
+only moving part is orchestration (naive vs. iteration vs. decomposition) — System
+E changes many variables at once relative to A:
 
-This is **not** a reproduction of OpenRag's published 72.89% Recall@10 (that uses
-a different metric, chunk granularity, and k=10). It's a *fair, like-for-like*
-comparison inside this benchmark.
+- **Embeddings:** OpenAI vs. `BAAI/llm-embedder`.
+- **Index & units:** an in-memory RAPTOR forest with LLM-generated (`gpt-4o-mini`)
+  summary nodes vs. OpenSearch HNSW over raw article chunks.
+- **Retrieval strategy:** HyDE + BM25 + query-decomposition multi-strategy vs. a
+  single dense retrieval.
+- **Reranking:** an external Cohere neural reranker vs. none.
+
+Because these confounds move together, a gap between E and A/B/F **cannot be
+attributed to any single factor.** E therefore answers *"how does a strong,
+well-engineered third-party RAG stack score under our harness and metrics?"* — an
+external SOTA yardstick — and deliberately not *"which component causes the
+difference?"*, which is what the controlled A/B/F contrast is for.
+
+Two further caveats keep E honest: OpenRag returns chunk *text* without a source
+URL, so System E recovers each chunk's article URL by matching the text back to
+the MultiHop corpus and dedupes (to be scored by the same recall@k / precision@k);
+and answer generation reuses the shared Bedrock LLM. This is **not** a reproduction
+of OpenRag's published 72.89% Recall@10 (different metric, chunk granularity, and
+k=10).
 
 ```bash
 # 1. OpenRag uses OpenAI (embeddings + gpt-4o-mini summaries) and Cohere (rerank):
@@ -141,11 +156,117 @@ effect — unlike E, which swaps the whole retriever. It's the decomposition run
 of the comparison study, distinct from B's iterative reformulation loop. No new
 deps, no keys (Bedrock only).
 
+System F deliberately mirrors **Ammann, Golde & Akbik (2025)**, *Question
+Decomposition for Retrieval-Augmented Generation* (ACL 2025 Student Research
+Workshop) — the same drop-in recipe of LLM question decomposition plus an
+off-the-shelf reranker, with no training or specialised indexing, evaluated on
+MultiHop-RAG (they report MRR@10 +36.7% and answer-F1 +11.6% over standard RAG).
+Their pipeline is, by their own account, **non-iterative**, and they name that as
+a limitation:
+
+> "Lack of iterative retrieval. The pipeline operates in a non-iterative fashion,
+> which represents a limitation compared to more adaptive approaches."
+
+That is precisely the gap this study fills: **System B is the iterative comparator
+they lack.** Holding the retriever and the generator LLM constant across A
+(naive), F (single-pass decomposition, ≈ Ammann et al.) and B (iterative
+reformulation) isolates *decomposition vs. iteration vs. neither* on the same
+benchmark — the contribution of this work relative to theirs. (Verify the quoted
+sentence against the published PDF before citing it verbatim.)
+
 ```bash
 docker compose run --rm api python -m src.cli run-experiment \
   --name decomp --systems A,B,F --datasets multihop --limit 20
 docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
 ```
+
+## Ablations & secondary metrics
+
+**System B iteration sweep (k = 1, 3, 5).** `B1`/`B3`/`B5` are System B at agent-step
+budgets 1/3/5, registered as distinct systems so they run side-by-side in one
+experiment. `compute-metrics` then yields one row each → a cost-vs-accuracy curve
+instead of a single point. `B1` (one retrieve→answer step, no reformulation) is the
+ablation: if accuracy is flat from B1 to B5, iteration buys nothing — itself a
+finding.
+
+```bash
+docker compose run --rm api python -m src.cli run-experiment \
+  --name b-ksweep --systems B1,B3,B5 --datasets multihop
+docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
+```
+
+**Secondary correctness metrics.** Primary correctness stays `contains_match`
+(the MultiHop-RAG containment metric, Tang & Yang 2024). Two secondary columns are
+added to the metrics table: normalized **exact-match** (`accuracy_exact`) and a
+**CRAG LLM-as-judge** truthfulness score (`crag_score`, Yang et al. 2024 rubric:
+perfect = 1, acceptable = 0.5, missing = 0, incorrect = −1). The judge is a
+post-hoc, resumable pass over existing runs — it never re-runs the systems and only
+scores rows it hasn't judged yet:
+
+```bash
+docker compose run --rm api python -m src.cli judge --experiment <id>          # all systems
+docker compose run --rm api python -m src.cli judge --experiment <id> --system B5
+docker compose run --rm api python -m src.cli compute-metrics --experiment <id>  # fills the two columns
+```
+
+The judge model is **independent of generation**: set `JUDGE_MODEL` (any LiteLLM
+provider — `bedrock/…`, `deepseek/deepseek-chat`, `gemini/…`, `openai/…`) to pair
+cheap generation with a strong, reliable judge. It defaults to `LITELLM_MODEL`.
+
+**Per-question-type breakdown.** MultiHop tags each query `inference` /
+`comparison` / `temporal` / `null` (in `queries.metadata['question_type']`).
+`metrics-by-type` breaks accuracy out by type per system — the hypothesis being F
+wins on comparison/temporal, B on inference. Pure post-hoc, no schema change:
+
+```bash
+docker compose run --rm api python -m src.cli metrics-by-type --experiment <id>
+```
+
+**Sampling for cost control.** Two ways to run fewer queries:
+- `--limit 20` — first 20 by id, for a **quick smoke test** (check the pipeline + read real per-call cost). Not random; don't report it.
+- `--sample 500 --seed 42` — a **defensible subset**: seeded random draw, stratified by question type by default, with the exact query IDs recorded in the experiment config so it's reproducible. Use `--no-stratify` for a plain random draw. `--sample` overrides `--limit`.
+
+```bash
+docker compose run --rm api python -m src.cli run-experiment --name smoke --systems A --datasets multihop --limit 20
+docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,E,F --datasets multihop --sample 500 --seed 42
+```
+
+## Retrieval validation (Tang & Yang Table 5)
+
+`retrieval-eval` probes the retriever alone — independent of A/B/E/F — and reports
+MRR@k, MAP@k, Hits@4 and Hits@k over the eval set:
+
+```bash
+docker compose run --rm api python -m src.cli retrieval-eval --dataset multihop --k 10
+```
+
+**Read this before comparing to the paper.** Two things make these numbers *not*
+a like-for-like Table 5 row:
+
+1. **Granularity (the big one).** This repo indexes MultiHop at **article/URL**
+   granularity — one document per article — so a "hit" means retrieving the right
+   *article*. Table 5 retrieves over **~256-token passages**, so a "hit" means the
+   right *passage*. Finding the right article out of ~609 is a much easier task
+   than the right passage out of several thousand, so our numbers will read
+   **higher** than Table 5 and are not directly comparable.
+2. **Pipeline.** Ours is hybrid (BM25 + `llm-embedder` dense, RRF) → `ms-marco-MiniLM`
+   cross-encoder rerank. Table 5 rows are single dense embedders, optionally with
+   `bge-reranker-large`. Different first stage, different reranker.
+
+So `retrieval-eval` is a sound **"does the retriever surface the right articles"**
+sanity check, and the right way to defend the downstream B-vs-F claims is to state
+the article-level retrieval quality explicitly. A *literal* Table 5 replication
+needs passage-level (256-token) chunking + a fact→passage gold mapping + a separate
+index — a deliberate change to the URL-keyed design, not yet built. Compare against
+the `llm-embedder` row of Table 5 in arXiv:2401.15391 (the best reranked row there
+reaches ≈ Hits@10 0.747 / Hits@4 0.663).
+
+## Logs & transparency
+
+- **Live logs:** `LOG_LEVEL=INFO` (default) prints experiment/system milestones and per-query failures; **`LOG_LEVEL=DEBUG`** adds a per-run line (correct / steps / cost / latency) and System B's per-step decisions (reformulate vs. answer). Set it in `.env`.
+- **SPA** (`localhost:8000/` → Experiments → click a row) shows: the run **config/selection** (sample, seed, model, top_k, max steps), the metrics table incl. **Exact / CRAG / Steps**, a **per-question-type** breakdown, and per-run rows with **judge label, steps, cost** and the gold answer (hover the answer cell).
+- **Phoenix** (`localhost:6006`): the deepest view — every span (retrieve → decide → answer), tokens and cost per call.
+- **Files:** `export` dumps full runs + metrics JSON; `metrics-by-type` and `retrieval-eval` also write JSON under `/data/results/`.
 
 ## Implementation status
 
@@ -154,7 +275,7 @@ docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
 | `src/datasets/multihop.py`           | implemented   | Loads `corpus` + `MultiHopRAG` HF configs; URL-keyed chunks; idempotent re-run |
 | `src/datasets/ragtruth.py`           | implemented   | `hallucination` derived from non-empty `labels` span list                      |
 | `src/evaluation/runner.py`           | implemented   | Per-query failures persist a stub row so resume skips them                     |
-| `src/systems/system_b.py`            | partial       | Loop runs; `tokens_in/out` and `cost_usd` still 0 — affects B `$/correct`      |
+| `src/systems/system_b.py`            | implemented   | Per-instance budget (B1/B3/B5); cost via `response_cost` + litellm-pricing fallback |
 | `src/retrieval/opensearch_client.py` | hybrid stub   | `hybrid_search` falls back to k-NN; needs OS search pipeline or client-side RRF |
 | `src/evaluation/metrics.py`          | done          | Runner uses `contains_match`; switch to `exact_match` for MultiHop paper compliance |
 
@@ -199,9 +320,9 @@ docker compose run --rm api python -m src.cli export --experiment 2
 
 ### Known caveats that affect headline numbers
 
-- **B cost can under-report** if `system_b.py`'s instructor raw response carries no
-  `response_cost`; `$/correct` and `total_cost_usd` for System B then read as 0 in the
-  metrics table.
+- **B cost** is tracked from `response_cost`, falling back to `litellm.cost_per_token`
+  from the usage token counts when the instructor response omits it — so System B's
+  `$/correct` no longer silently reads 0 (requires the model in litellm's pricing map).
 - **Accuracy denominator includes failed runs** (rows with `is_correct IS NULL`) in
   `compute-metrics`. Either delete those rows before aggregating, or filter the
   denominator in `cli.py:compute_metrics`.

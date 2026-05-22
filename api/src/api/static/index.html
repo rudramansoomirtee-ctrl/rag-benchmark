@@ -74,8 +74,8 @@
       <div class="systems">
         <label><input type="radio" name="sys" value="A" checked> A — naive RAG</label>
         <label><input type="radio" name="sys" value="B"> B — agent loop</label>
-        <label><input type="radio" name="sys" value="C"> C — A + HHEM gate</label>
-        <label><input type="radio" name="sys" value="D"> D — B + HHEM gate</label>
+        <label><input type="radio" name="sys" value="E"> E — OpenRag (needs index)</label>
+        <label><input type="radio" name="sys" value="F"> F — decomposition</label>
       </div>
       <label>Query</label>
       <textarea id="query" placeholder="e.g. Which company that Bloomberg covered in 2023 also issued a Q4 earnings warning?"></textarea>
@@ -203,6 +203,7 @@
       tbody.innerHTML = '<tr><td colspan="4" class="muted">loading…</td></tr>';
       const r = await fetch('/api/experiments');
       const data = await r.json();
+      window.EXPS = data;
       tbody.innerHTML = data.length
         ? data.map(e => `<tr class="clickable" onclick="loadExpDetail(${e.id})">
             <td>${e.id}</td><td>${escape(e.name)}</td>
@@ -214,35 +215,68 @@
     async function loadExpDetail(id) {
       const detail = document.getElementById('exp-detail');
       detail.innerHTML = '<p class="muted">loading…</p>';
-      const [mr, rr] = await Promise.all([
+      const [mr, rr, bt] = await Promise.all([
         fetch(`/api/experiments/${id}/metrics`).then(r => r.json()),
-        fetch(`/api/experiments/${id}/runs?limit=50`).then(r => r.json()),
+        fetch(`/api/experiments/${id}/runs?limit=100`).then(r => r.json()),
+        fetch(`/api/experiments/${id}/by-type`).then(r => r.json()).catch(() => []),
       ]);
+
+      const exp = (window.EXPS || []).find(e => e.id === id);
+      const cfg = (exp && exp.config) || {};
+      const sel = cfg.selection || {};
+      const configHtml = exp ? `
+        <h3>Config</h3>
+        <div class="meta">
+          <div><strong>${escape((cfg.systems || []).join(', ')) || '—'}</strong>systems</div>
+          <div><strong>${escape(cfg.model || '—')}</strong>model</div>
+          <div><strong>${escape(sel.method || '—')}${sel.n != null ? ' (n=' + sel.n + ')' : ''}</strong>selection</div>
+          <div><strong>${sel.seed != null ? sel.seed : '—'}</strong>seed</div>
+          <div><strong>${cfg.top_k ?? '—'}</strong>top_k</div>
+          <div><strong>${cfg.max_agent_steps ?? '—'}</strong>max steps</div>
+        </div>` : '';
+
       const metricsHtml = mr.length ? `
         <h3>Metrics</h3>
         <table><thead><tr>
           <th>Sys</th><th>DS</th><th>N</th><th>P@5</th><th>R@5</th>
-          <th>Acc</th><th>HHEM</th><th>%flag</th><th>Cost</th><th>$/corr</th>
+          <th>Acc</th><th>Exact</th><th>CRAG</th><th>Steps</th><th>HHEM</th><th>%flag</th><th>Cost</th><th>$/corr</th>
         </tr></thead><tbody>${mr.map(m => `<tr>
           <td>${m.system}</td><td>${m.dataset}</td><td>${m.n_queries}</td>
           <td>${num(m.precision_at_5)}</td><td>${num(m.recall_at_5)}</td>
-          <td>${num(m.accuracy)}</td><td>${num(m.avg_faithfulness)}</td>
+          <td>${num(m.accuracy)}</td><td>${num(m.accuracy_exact)}</td><td>${num(m.crag_score)}</td>
+          <td>${num(m.avg_trajectory_length)}</td><td>${num(m.avg_faithfulness)}</td>
           <td>${num(m.pct_flagged)}</td><td>$${num(m.total_cost_usd)}</td>
           <td>$${num(m.cost_per_correct, 4)}</td>
         </tr>`).join('')}</tbody></table>` : '<p class="muted">No metrics yet — run compute-metrics.</p>';
+
+      const order = ['inference', 'comparison', 'temporal', 'null'];
+      const byTypeHtml = (Array.isArray(bt) && bt.length) ? `
+        <h3>Accuracy by question type</h3>
+        <table><thead><tr><th>Sys</th><th>Type</th><th>N</th><th>Acc</th><th>Exact</th><th>CRAG</th></tr></thead>
+        <tbody>${bt.slice().sort((a, b) => a.system.localeCompare(b.system)
+              || (order.indexOf(a.question_type) - order.indexOf(b.question_type))).map(t => `<tr>
+          <td>${t.system}</td><td>${escape(t.question_type)}</td><td>${t.n}</td>
+          <td>${num(t.accuracy)}</td><td>${num(t.accuracy_exact)}</td><td>${num(t.crag_score)}</td>
+        </tr>`).join('')}</tbody></table>` : '';
+
       const runsHtml = rr.length ? `
         <h3>Runs (first ${rr.length})</h3>
         <table><thead><tr>
-          <th>Sys</th><th>Query</th><th>Answer</th><th>✓</th><th>HHEM</th><th>ms</th>
+          <th>Sys</th><th>Query</th><th>Answer</th><th>✓</th><th>Judge</th><th>Steps</th><th>HHEM</th><th>$</th><th>ms</th>
         </tr></thead><tbody>${rr.map(r => `<tr>
           <td>${r.system}</td>
-          <td>${escape((r.query || '').slice(0, 80))}…</td>
-          <td>${escape((r.answer || '').slice(0, 80))}${r.answer && r.answer.length > 80 ? '…' : ''}</td>
+          <td title="${escape(r.query)}">${escape((r.query || '').slice(0, 60))}…</td>
+          <td title="gold: ${escape(r.ground_truth || '')}">${escape((r.answer || '').slice(0, 60))}${r.answer && r.answer.length > 60 ? '…' : ''}</td>
           <td>${r.is_correct === true ? '<span class="pill ok">✓</span>'
                 : r.is_correct === false ? '<span class="pill bad">✗</span>' : '—'}</td>
-          <td>${num(r.hhem_score)}</td><td>${r.latency_ms ?? '—'}</td>
+          <td>${escape(r.llm_judge_label || '—')}</td>
+          <td>${r.n_steps ?? '—'}</td>
+          <td>${num(r.hhem_score)}</td>
+          <td>$${num(r.cost_usd, 4)}</td>
+          <td>${r.latency_ms ?? '—'}</td>
         </tr>`).join('')}</tbody></table>` : '<p class="muted">No runs.</p>';
-      detail.innerHTML = metricsHtml + runsHtml;
+
+      detail.innerHTML = configHtml + metricsHtml + byTypeHtml + runsHtml;
     }
 
     // --- Helpers ---

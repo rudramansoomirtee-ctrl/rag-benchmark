@@ -43,5 +43,39 @@ def __(metrics, plt):
     return (fig,)
 
 
+@app.cell
+def __(engine, pd):
+    # Per-question-type accuracy (MultiHop). Type lives in metadata->>'question_type',
+    # not task_type. Denominator matches the CLI: NULL is_correct counts as wrong.
+    by_type = pd.read_sql(
+        """
+        SELECT r.system,
+               lower(split_part(q.metadata->>'question_type', '_query', 1)) AS question_type,
+               AVG((COALESCE(r.is_correct, false))::int)::float AS accuracy,
+               COUNT(*) AS n
+        FROM runs r
+        JOIN queries q ON q.id = r.query_id
+        WHERE q.dataset = 'multihop'
+        GROUP BY r.system, question_type
+        ORDER BY r.system, question_type
+        """,
+        engine,
+    )
+    by_type
+    return (by_type,)
+
+
+@app.cell
+def __(by_type):
+    # Grouped bars: accuracy per question type, one cluster per system.
+    pivot = by_type.pivot(index="question_type", columns="system", values="accuracy")
+    ax2 = pivot.plot(kind="bar", figsize=(8, 5), ylim=(0, 1))
+    ax2.set_ylabel("Accuracy (containment)")
+    ax2.set_xlabel("MultiHop question type")
+    ax2.set_title("Per-question-type accuracy by system")
+    fig2 = ax2.get_figure()
+    return (fig2, pivot)
+
+
 if __name__ == "__main__":
     app.run()

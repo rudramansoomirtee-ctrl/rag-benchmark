@@ -12,6 +12,9 @@ class Settings(BaseSettings):
 
     # LLM
     litellm_model: str = "bedrock/amazon.nova-lite-v1:0"
+    # LLM-as-judge model — independent of generation so you can run cheap
+    # generation + strong judging. Falls back to litellm_model when unset.
+    judge_model: str | None = None
     aws_region: str = "eu-west-2"
 
     # Retrieval
