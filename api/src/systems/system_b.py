@@ -45,7 +45,9 @@ DECIDE_SYSTEM_PROMPT = (
     "   - Use distinct keywords from the original query — avoid trivial paraphrase.\n"
     "\n"
     "Hard rules:\n"
-    "- If you have used >= 4 of your steps, prefer ANSWER with current evidence.\n"
+    "- You have a fixed step budget, shown each turn as 'Steps taken: n/budget'.\n"
+    "- On your final allowed step (n == budget) you MUST choose ANSWER from the\n"
+    "  current evidence — never REFORMULATE on the final step.\n"
     "- Do not invent facts. If context cannot answer, ANSWER with\n"
     "  'The provided context does not contain the answer.'"
 )
@@ -57,6 +59,7 @@ class AgentState(TypedDict):
     retrieved_chunks: list[dict]
     all_retrieved_ids: list[str]
     n_steps: int
+    max_agent_steps: int
     final_answer: str | None
     tokens_in: int
     tokens_out: int
@@ -87,7 +90,7 @@ def _decide_node(state: AgentState) -> AgentState:
                 "content": (
                     f"Original question: {state['original_query']}\n\n"
                     f"Current context:\n{context}\n\n"
-                    f"Steps taken: {state['n_steps']}/{settings.max_agent_steps}"
+                    f"Steps taken: {state['n_steps']}/{state['max_agent_steps']}"
                 ),
             },
         ],
@@ -100,7 +103,7 @@ def _decide_node(state: AgentState) -> AgentState:
     hidden = getattr(raw, "_hidden_params", None) or {}
     state["cost_usd"] += float(hidden.get("response_cost") or 0.0)
 
-    if decision.action == AgentAction.ANSWER or state["n_steps"] >= settings.max_agent_steps:
+    if decision.action == AgentAction.ANSWER or state["n_steps"] >= state["max_agent_steps"]:
         state["final_answer"] = decision.final_answer or "No answer produced."
     else:
         state["current_query"] = decision.reformulated_query or state["current_query"]
@@ -127,7 +130,10 @@ def _build_graph():
 class SystemB:
     name = "B"
 
-    def __init__(self):
+    def __init__(self, max_agent_steps: int | None = None):
+        self.max_agent_steps = (
+            max_agent_steps if max_agent_steps is not None else settings.max_agent_steps
+        )
         self._graph = _build_graph()
 
     def answer(self, query: str) -> RunResult:
@@ -138,6 +144,7 @@ class SystemB:
             "retrieved_chunks": [],
             "all_retrieved_ids": [],
             "n_steps": 0,
+            "max_agent_steps": self.max_agent_steps,
             "final_answer": None,
             "tokens_in": 0,
             "tokens_out": 0,

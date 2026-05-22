@@ -13,6 +13,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.progress import track
 from rich.table import Table
 from sqlalchemy import select
 
@@ -123,7 +124,8 @@ def run_experiment(
 @app.command()
 def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
     """Compute aggregate metrics for an experiment and write to the `metrics` table."""
-    from src.evaluation.metrics import precision_at_k, recall_at_k
+    from src.evaluation.metrics import precision_at_k, recall_at_k, exact_match
+    from src.evaluation.judge import CRAG_SCORE
     from src.db.models import Metric
 
     session = get_session()
@@ -140,7 +142,7 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             grouped[(run.system, q.dataset)].append((run, q))
 
         table = Table(title=f"Metrics for experiment {experiment}")
-        for col in ["System", "Dataset", "N", "P@5", "R@5", "Accuracy", "AvgHHEM", "Cost", "$/correct"]:
+        for col in ["System", "Dataset", "N", "P@5", "R@5", "Accuracy", "Exact", "CRAG", "AvgHHEM", "Cost", "$/correct"]:
             table.add_column(col)
 
         for (system, dataset), pairs in grouped.items():
@@ -149,6 +151,9 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             rec = sum(recall_at_k(r.retrieved_chunk_ids, q.relevant_chunk_ids, settings.top_k) for r, q in pairs) / n
             correct = sum(1 for r, _ in pairs if r.is_correct)
             acc = correct / n
+            exact = sum(exact_match(r.answer or "", q.ground_truth or "") for r, q in pairs) / n
+            judged = [r.llm_judge_label for r, _ in pairs if r.llm_judge_label]
+            crag = (sum(CRAG_SCORE.get(lbl, 0.0) for lbl in judged) / len(judged)) if judged else None
             hhems = [r.hhem_score for r, _ in pairs if r.hhem_score is not None]
             avg_hhem = sum(hhems) / len(hhems) if hhems else None
             flagged = [r.flagged for r, _ in pairs if r.flagged is not None]
@@ -177,6 +182,8 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
                 pct_flagged=pct_flagged,
                 avg_trajectory_length=avg_steps,
                 accuracy=acc,
+                accuracy_exact=exact,
+                crag_score=crag,
                 total_cost_usd=total_cost,
                 cost_per_correct=cost_per_correct,
             )
@@ -189,6 +196,8 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             table.add_row(
                 system, dataset, str(n),
                 f"{p:.3f}", f"{rec:.3f}", f"{acc:.3f}",
+                f"{exact:.3f}",
+                f"{crag:.3f}" if crag is not None else "-",
                 f"{avg_hhem:.3f}" if avg_hhem is not None else "-",
                 f"${total_cost:.3f}",
                 f"${cost_per_correct:.4f}" if cost_per_correct else "-",
@@ -196,6 +205,124 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
 
         session.commit()
         console.print(table)
+    finally:
+        session.close()
+
+
+@app.command()
+def judge(
+    experiment: int = typer.Option(..., "--experiment"),
+    system: str = typer.Option(None, "--system"),
+    limit: int = typer.Option(None, "--limit"),
+):
+    """LLM-as-judge (CRAG rubric) over an experiment's answers — secondary metric.
+
+    Idempotent + resumable: only scores runs that have an answer and no label yet,
+    so re-running resumes and never re-spends on already-judged rows. Restrict to
+    one system with --system (e.g. B5).
+    """
+    from collections import Counter
+    from src.evaluation.judge import judge as _judge, CRAG_SCORE
+
+    session = get_session()
+    try:
+        stmt = (
+            select(Run, Query)
+            .join(Query, Run.query_id == Query.id)
+            .where(
+                Run.experiment_id == experiment,
+                Run.answer.is_not(None),
+                Run.llm_judge_label.is_(None),
+                Query.ground_truth.is_not(None),
+            )
+            .order_by(Run.id)
+        )
+        if system:
+            stmt = stmt.where(Run.system == system)
+        rows = session.execute(stmt).all()
+        if limit:
+            rows = rows[:limit]
+
+        console.print(f"[bold]judging {len(rows)} runs[/bold] for experiment {experiment}")
+        counts: Counter = Counter()
+        total_cost = 0.0
+        for run, q in track(rows, description="LLM-as-judge"):
+            label, _score, cost = _judge(q.query_text, q.ground_truth, run.answer)
+            run.llm_judge_label = label
+            counts[label] += 1
+            total_cost += cost
+            session.commit()
+
+        n = sum(counts.values())
+        mean_crag = (
+            sum(CRAG_SCORE.get(lbl, 0.0) * c for lbl, c in counts.items()) / n if n else 0.0
+        )
+        console.print(
+            f"[green]judged {n}[/green] — "
+            + ", ".join(f"{lbl}={counts[lbl]}" for lbl in ("perfect", "acceptable", "missing", "incorrect"))
+            + f" | mean CRAG = {mean_crag:.3f} | judge cost ${total_cost:.4f}"
+        )
+    finally:
+        session.close()
+
+
+@app.command()
+def metrics_by_type(
+    experiment: int = typer.Option(..., "--experiment"),
+    dataset: str = typer.Option("multihop", "--dataset"),
+    output: str = typer.Option("/data/results/", "--output"),
+):
+    """Break out accuracy by MultiHop question type (inference/comparison/temporal/null).
+
+    Pure post-hoc: the question type lives in queries.metadata['question_type']
+    (task_type is uniformly 'qa'). Prints a table and writes JSON; no schema change.
+    """
+    from collections import defaultdict
+    from src.evaluation.metrics import exact_match
+    from src.evaluation.judge import CRAG_SCORE
+
+    session = get_session()
+    try:
+        rows = session.execute(
+            select(Run, Query).join(Query, Run.query_id == Query.id).where(
+                Run.experiment_id == experiment, Query.dataset == dataset
+            )
+        ).all()
+
+        grouped = defaultdict(list)
+        for run, q in rows:
+            qt = ((q.query_metadata or {}).get("question_type") or "unknown").replace("_query", "").lower()
+            grouped[(run.system, qt)].append((run, q))
+
+        type_order = {"inference": 0, "comparison": 1, "temporal": 2, "null": 3}
+        table = Table(title=f"Accuracy by question type — experiment {experiment} ({dataset})")
+        for col in ["System", "Type", "N", "Accuracy", "Exact", "CRAG"]:
+            table.add_column(col)
+
+        export_rows = []
+        for (system, qt), pairs in sorted(
+            grouped.items(), key=lambda kv: (kv[0][0], type_order.get(kv[0][1], 9))
+        ):
+            n = len(pairs)
+            correct = sum(1 for r, _ in pairs if r.is_correct)
+            acc = correct / n if n else 0.0
+            exact = sum(exact_match(r.answer or "", q.ground_truth or "") for r, q in pairs) / n if n else 0.0
+            judged = [r.llm_judge_label for r, _ in pairs if r.llm_judge_label]
+            crag = (sum(CRAG_SCORE.get(lbl, 0.0) for lbl in judged) / len(judged)) if judged else None
+            table.add_row(
+                system, qt, str(n), f"{acc:.3f}", f"{exact:.3f}",
+                f"{crag:.3f}" if crag is not None else "-",
+            )
+            export_rows.append({
+                "system": system, "question_type": qt, "n": n,
+                "accuracy": acc, "accuracy_exact": exact, "crag_score": crag,
+            })
+
+        console.print(table)
+        out = Path(output)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"exp{experiment}_by_type.json").write_text(json.dumps(export_rows, indent=2))
+        console.print(f"[green]wrote[/green] {out}/exp{experiment}_by_type.json")
     finally:
         session.close()
 

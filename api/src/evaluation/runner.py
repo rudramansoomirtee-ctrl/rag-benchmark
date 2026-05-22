@@ -11,6 +11,8 @@ The runner is resumable: the UNIQUE(experiment_id, system, query_id) constraint
 on `runs` means re-running this picks up where it left off — useful when Bedrock
 throttles mid-eval.
 """
+from typing import Callable
+
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from rich.console import Console
@@ -27,9 +29,15 @@ from src.systems.system_e import SystemE
 from src.systems.system_f import SystemF
 
 
-SYSTEM_REGISTRY: dict[str, type[System]] = {
+# Values are zero-arg factories so a system can be registered under several
+# labels with different hyperparameters. B1/B3/B5 are System B at agent-step
+# budgets 1/3/5 — the iteration sweep, runnable side-by-side in one experiment.
+SYSTEM_REGISTRY: dict[str, Callable[[], System]] = {
     "A": SystemA,
     "B": SystemB,
+    "B1": lambda: SystemB(max_agent_steps=1),
+    "B3": lambda: SystemB(max_agent_steps=3),
+    "B5": lambda: SystemB(max_agent_steps=5),
     "E": SystemE,
     "F": SystemF,
 }
@@ -59,6 +67,11 @@ def run_experiment(
                 "split": split,
                 "top_k": settings.top_k,
                 "max_agent_steps": settings.max_agent_steps,
+                "agent_steps_by_system": {
+                    s: (int(s[1:]) if s.startswith("B") and s[1:].isdigit() else settings.max_agent_steps)
+                    for s in systems
+                    if s.startswith("B")
+                },
                 "model": settings.litellm_model,
                 "embedding_model": settings.embedding_model,
             },

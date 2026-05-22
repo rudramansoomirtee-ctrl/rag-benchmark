@@ -91,23 +91,38 @@ marimo edit notebooks/analysis.py
 
 ---
 
-## System E — OpenRag (vendored, in-process)
+## System E — OpenRag (uncontrolled SOTA reference)
 
-System E benchmarks the OpenRag (`ultimate_rag`) retriever under this harness's
-methodology, on the same A–E comparison as the built-in systems. OpenRag is
-**vendored into this repo** (`api/ultimate_rag/`, `api/knowledge_base/`) and
-called **in-process** — no separate service, no HTTP. It runs OpenRag's real
+System E runs the OpenRag (`ultimate_rag`) engine under this harness's metrics.
+OpenRag is **vendored into this repo** (`api/ultimate_rag/`, `api/knowledge_base/`)
+and called **in-process** — no separate service, no HTTP. It runs OpenRag's real
 multi-strategy pipeline (HyDE + BM25 + query-decomposition + RAPTOR) with Cohere
 neural reranking, over an in-memory RAPTOR forest built from the MultiHop corpus.
 
-Because OpenRag returns chunk *text* without a source URL, System E recovers each
-chunk's article URL by matching the text back to the MultiHop corpus in Postgres,
-then dedupes — so it's scored by the same recall@k / precision@k as A–D. Answer
-generation reuses the shared Bedrock LLM, so E differs from A only in retrieval.
+**E is an uncontrolled reference point, not a controlled comparator.** Unlike the
+A/B/F comparison — which holds the retriever *and* the generator LLM fixed so the
+only moving part is orchestration (naive vs. iteration vs. decomposition) — System
+E changes many variables at once relative to A:
 
-This is **not** a reproduction of OpenRag's published 72.89% Recall@10 (that uses
-a different metric, chunk granularity, and k=10). It's a *fair, like-for-like*
-comparison inside this benchmark.
+- **Embeddings:** OpenAI vs. `BAAI/llm-embedder`.
+- **Index & units:** an in-memory RAPTOR forest with LLM-generated (`gpt-4o-mini`)
+  summary nodes vs. OpenSearch HNSW over raw article chunks.
+- **Retrieval strategy:** HyDE + BM25 + query-decomposition multi-strategy vs. a
+  single dense retrieval.
+- **Reranking:** an external Cohere neural reranker vs. none.
+
+Because these confounds move together, a gap between E and A/B/F **cannot be
+attributed to any single factor.** E therefore answers *"how does a strong,
+well-engineered third-party RAG stack score under our harness and metrics?"* — an
+external SOTA yardstick — and deliberately not *"which component causes the
+difference?"*, which is what the controlled A/B/F contrast is for.
+
+Two further caveats keep E honest: OpenRag returns chunk *text* without a source
+URL, so System E recovers each chunk's article URL by matching the text back to
+the MultiHop corpus and dedupes (to be scored by the same recall@k / precision@k);
+and answer generation reuses the shared Bedrock LLM. This is **not** a reproduction
+of OpenRag's published 72.89% Recall@10 (different metric, chunk granularity, and
+k=10).
 
 ```bash
 # 1. OpenRag uses OpenAI (embeddings + gpt-4o-mini summaries) and Cohere (rerank):
@@ -141,10 +156,66 @@ effect — unlike E, which swaps the whole retriever. It's the decomposition run
 of the comparison study, distinct from B's iterative reformulation loop. No new
 deps, no keys (Bedrock only).
 
+System F deliberately mirrors **Ammann, Golde & Akbik (2025)**, *Question
+Decomposition for Retrieval-Augmented Generation* (ACL 2025 Student Research
+Workshop) — the same drop-in recipe of LLM question decomposition plus an
+off-the-shelf reranker, with no training or specialised indexing, evaluated on
+MultiHop-RAG (they report MRR@10 +36.7% and answer-F1 +11.6% over standard RAG).
+Their pipeline is, by their own account, **non-iterative**, and they name that as
+a limitation:
+
+> "Lack of iterative retrieval. The pipeline operates in a non-iterative fashion,
+> which represents a limitation compared to more adaptive approaches."
+
+That is precisely the gap this study fills: **System B is the iterative comparator
+they lack.** Holding the retriever and the generator LLM constant across A
+(naive), F (single-pass decomposition, ≈ Ammann et al.) and B (iterative
+reformulation) isolates *decomposition vs. iteration vs. neither* on the same
+benchmark — the contribution of this work relative to theirs. (Verify the quoted
+sentence against the published PDF before citing it verbatim.)
+
 ```bash
 docker compose run --rm api python -m src.cli run-experiment \
   --name decomp --systems A,B,F --datasets multihop --limit 20
 docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
+```
+
+## Ablations & secondary metrics
+
+**System B iteration sweep (k = 1, 3, 5).** `B1`/`B3`/`B5` are System B at agent-step
+budgets 1/3/5, registered as distinct systems so they run side-by-side in one
+experiment. `compute-metrics` then yields one row each → a cost-vs-accuracy curve
+instead of a single point. `B1` (one retrieve→answer step, no reformulation) is the
+ablation: if accuracy is flat from B1 to B5, iteration buys nothing — itself a
+finding.
+
+```bash
+docker compose run --rm api python -m src.cli run-experiment \
+  --name b-ksweep --systems B1,B3,B5 --datasets multihop
+docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
+```
+
+**Secondary correctness metrics.** Primary correctness stays `contains_match`
+(the MultiHop-RAG containment metric, Tang & Yang 2024). Two secondary columns are
+added to the metrics table: normalized **exact-match** (`accuracy_exact`) and a
+**CRAG LLM-as-judge** truthfulness score (`crag_score`, Yang et al. 2024 rubric:
+perfect = 1, acceptable = 0.5, missing = 0, incorrect = −1). The judge is a
+post-hoc, resumable pass over existing runs — it never re-runs the systems and only
+scores rows it hasn't judged yet:
+
+```bash
+docker compose run --rm api python -m src.cli judge --experiment <id>          # all systems
+docker compose run --rm api python -m src.cli judge --experiment <id> --system B5
+docker compose run --rm api python -m src.cli compute-metrics --experiment <id>  # fills the two columns
+```
+
+**Per-question-type breakdown.** MultiHop tags each query `inference` /
+`comparison` / `temporal` / `null` (in `queries.metadata['question_type']`).
+`metrics-by-type` breaks accuracy out by type per system — the hypothesis being F
+wins on comparison/temporal, B on inference. Pure post-hoc, no schema change:
+
+```bash
+docker compose run --rm api python -m src.cli metrics-by-type --experiment <id>
 ```
 
 ## Implementation status

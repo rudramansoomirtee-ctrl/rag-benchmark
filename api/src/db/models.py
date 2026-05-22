@@ -68,7 +68,8 @@ class Run(Base):
     tokens_out: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     cost_usd: Mapped[float | None] = mapped_column(Numeric(10, 6))
-    is_correct: Mapped[bool | None] = mapped_column(Boolean)
+    is_correct: Mapped[bool | None] = mapped_column(Boolean)        # primary: contains_match
+    llm_judge_label: Mapped[str | None] = mapped_column(Text)       # secondary: CRAG rubric
     phoenix_trace_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -92,7 +93,9 @@ class Metric(Base):
     avg_faithfulness: Mapped[float | None] = mapped_column(Float)
     pct_flagged: Mapped[float | None] = mapped_column(Float)
     avg_trajectory_length: Mapped[float | None] = mapped_column(Float)
-    accuracy: Mapped[float | None] = mapped_column(Float)
+    accuracy: Mapped[float | None] = mapped_column(Float)           # primary: contains_match
+    accuracy_exact: Mapped[float | None] = mapped_column(Float)     # secondary: normalized exact-match
+    crag_score: Mapped[float | None] = mapped_column(Float)         # secondary: mean CRAG truthfulness
     total_cost_usd: Mapped[float | None] = mapped_column(Numeric(10, 4))
     cost_per_correct: Mapped[float | None] = mapped_column(Numeric(10, 6))
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

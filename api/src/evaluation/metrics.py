@@ -1,8 +1,10 @@
-"""IR metrics + answer-correctness scoring. Deterministic, no LLM-as-judge.
+"""IR metrics + deterministic answer-correctness scoring.
 
 For retrieval: precision@k and recall@k against ground-truth chunk IDs.
-For answer correctness: normalized exact-match (case-insensitive, whitespace-collapsed,
-punctuation-stripped). This is the standard scoring approach for MultiHop-RAG.
+For answers: `contains_match` (normalized containment) is the PRIMARY metric — it
+matches the MultiHop-RAG paper (Tang & Yang 2024), whose gold answers are short
+factoids (yes/no, entity, before/after) scored by presence in the response.
+`exact_match` is a stricter SECONDARY variant; the CRAG LLM-as-judge lives in judge.py.
 """
 import re
 import string
@@ -33,16 +35,17 @@ def _normalize(s: str) -> str:
 
 
 def exact_match(predicted: str, gold: str) -> bool:
-    """Normalized exact-match. Use this for MultiHop QA."""
+    """Normalized full-string equality. Stricter SECONDARY metric (the paper uses containment)."""
     if not predicted or not gold:
         return False
     return _normalize(predicted) == _normalize(gold)
 
 
 def contains_match(predicted: str, gold: str) -> bool:
-    """Looser: does the normalized gold appear inside the normalized prediction?
+    """Normalized containment: does the gold answer appear inside the prediction?
 
-    Useful when the gold is a short factoid and the model wraps it in a sentence.
+    PRIMARY correctness metric — the MultiHop-RAG paper (Tang & Yang 2024) scores
+    a short factoid gold (yes/no, entity, before/after) by presence in the response.
     """
     if not predicted or not gold:
         return False
