@@ -49,6 +49,9 @@ def run_experiment(
     datasets: list[str],
     split: str = "eval",
     limit: int | None = None,
+    sample: int | None = None,
+    seed: int = 42,
+    stratify: bool = True,
 ) -> int:
     """Run all (system, dataset, query) combinations and persist to `runs`.
 
@@ -58,13 +61,51 @@ def run_experiment(
     session = get_session()
 
     try:
-        # Create or reuse experiment
+        # Load queries, then select. --sample = seeded (optionally stratified by
+        # question_type) random draw → a defensible subset. --limit = first-N, a
+        # quick smoke test only (NOT random). --sample wins if both are given.
+        queries: list[Query] = session.scalars(
+            select(Query).where(Query.dataset.in_(datasets), Query.split == split).order_by(Query.id)
+        ).all()
+
+        selection: dict = {"method": "all", "n": len(queries)}
+        if sample:
+            import random
+            from collections import defaultdict
+            rng = random.Random(seed)
+            if stratify:
+                buckets: dict = defaultdict(list)
+                for q in queries:
+                    buckets[(q.query_metadata or {}).get("question_type") or "_none"].append(q)
+                total = len(queries) or 1
+                picked: list[Query] = []
+                for qs in buckets.values():
+                    k = min(len(qs), max(1, round(sample * len(qs) / total)))
+                    picked.extend(rng.sample(qs, k))
+                rng.shuffle(picked)
+                queries = picked[:sample]
+            else:
+                queries = rng.sample(queries, min(sample, len(queries)))
+            queries.sort(key=lambda q: q.id)
+            if limit:
+                console.print("[yellow]--sample given; ignoring --limit[/yellow]")
+            selection = {
+                "method": "stratified_sample" if stratify else "random_sample",
+                "n": len(queries),
+                "seed": seed,
+                "query_ids": [q.id for q in queries],
+            }
+        elif limit:
+            queries = queries[:limit]
+            selection = {"method": "first_n", "n": len(queries)}
+
         exp = Experiment(
             name=name,
             config_json={
                 "systems": systems,
                 "datasets": datasets,
                 "split": split,
+                "selection": selection,
                 "top_k": settings.top_k,
                 "max_agent_steps": settings.max_agent_steps,
                 "agent_steps_by_system": {
@@ -80,13 +121,6 @@ def run_experiment(
         session.commit()
         session.refresh(exp)
         exp_id = exp.id
-
-        # Load queries
-        queries: list[Query] = session.scalars(
-            select(Query).where(Query.dataset.in_(datasets), Query.split == split).order_by(Query.id)
-        ).all()
-        if limit:
-            queries = queries[:limit]
 
         console.print(
             f"[bold]Experiment[/bold] [cyan]{name}[/cyan] (id={exp_id}) — "

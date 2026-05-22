@@ -107,9 +107,17 @@ def run_experiment(
     systems: str = typer.Option("A,B,C,D", "--systems"),
     datasets: str = typer.Option("multihop", "--datasets"),
     split: str = typer.Option("eval", "--split"),
-    limit: int = typer.Option(None, "--limit"),
+    limit: int = typer.Option(None, "--limit", help="Quick smoke test: first N queries by id (NOT random; use --sample for a defensible subset)."),
+    sample: int = typer.Option(None, "--sample", help="Defensible subset: random N, seeded and (by default) stratified by question type."),
+    seed: int = typer.Option(42, "--seed", help="RNG seed for --sample (reproducible; recorded in the experiment config)."),
+    stratify: bool = typer.Option(True, "--stratify/--no-stratify", help="Stratify --sample by question_type."),
 ):
-    """Run all four systems over all queries. Resumable on failure."""
+    """Run the chosen systems over the eval queries. Resumable on failure.
+
+    --limit 20 is the quick smoke test (first 20 by id). --sample 500 --seed 42 is
+    the defensible subset (seeded, stratified) whose exact query IDs are recorded
+    in the experiment config for reproducibility.
+    """
     from src.evaluation.runner import run_experiment as _run
     exp_id = _run(
         name=name,
@@ -117,6 +125,9 @@ def run_experiment(
         datasets=datasets.split(","),
         split=split,
         limit=limit,
+        sample=sample,
+        seed=seed,
+        stratify=stratify,
     )
     console.print(f"[green]experiment finished[/green] id={exp_id}")
 

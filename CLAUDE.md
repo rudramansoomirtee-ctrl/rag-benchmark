@@ -193,6 +193,10 @@ Index settings: `knn.algo_param.ef_search = 100`.
 
 `evaluation/runner.py:run_experiment` →
 - Creates one `experiments` row with the config snapshot.
+- Query selection: `--sample N [--seed S] [--no-stratify]` = seeded random subset,
+  stratified by `question_type` by default, with the exact `query_ids` recorded in
+  `config_json.selection` for reproducibility; `--limit N` = first-N by id (quick
+  smoke test only, **not** a random sample). `--sample` wins if both are passed.
 - For each `(system, query)` pair: calls `system.answer(q.query_text)`,
   scores correctness, upserts a `runs` row.
 - Uses `ON CONFLICT DO NOTHING` against `UNIQUE(experiment_id, system, query_id)`.
@@ -339,6 +343,8 @@ docker compose run --rm api python -m src.cli ingest-dataset {multihop|ragtruth}
 docker compose run --rm api python -m src.cli index-corpus multihop
 docker compose run --rm api python -m src.cli calibrate
 docker compose run --rm api python -m src.cli run-experiment --name X --systems A,B,E,F --datasets multihop
+docker compose run --rm api python -m src.cli run-experiment --name smoke --systems A --datasets multihop --limit 20  # quick smoke test (first 20)
+docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,E,F --datasets multihop --sample 500 --seed 42  # defensible stratified subset
 docker compose run --rm api python -m src.cli run-experiment --name ksweep --systems B1,B3,B5 --datasets multihop  # B iteration sweep
 docker compose run --rm api python -m src.cli compute-metrics --experiment N
 docker compose run --rm api python -m src.cli judge --experiment N            # CRAG LLM-as-judge (post-hoc, resumable)

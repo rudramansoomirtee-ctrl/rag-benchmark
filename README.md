@@ -222,6 +222,15 @@ wins on comparison/temporal, B on inference. Pure post-hoc, no schema change:
 docker compose run --rm api python -m src.cli metrics-by-type --experiment <id>
 ```
 
+**Sampling for cost control.** Two ways to run fewer queries:
+- `--limit 20` — first 20 by id, for a **quick smoke test** (check the pipeline + read real per-call cost). Not random; don't report it.
+- `--sample 500 --seed 42` — a **defensible subset**: seeded random draw, stratified by question type by default, with the exact query IDs recorded in the experiment config so it's reproducible. Use `--no-stratify` for a plain random draw. `--sample` overrides `--limit`.
+
+```bash
+docker compose run --rm api python -m src.cli run-experiment --name smoke --systems A --datasets multihop --limit 20
+docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,E,F --datasets multihop --sample 500 --seed 42
+```
+
 ## Retrieval validation (Tang & Yang Table 5)
 
 `retrieval-eval` probes the retriever alone — independent of A/B/E/F — and reports
