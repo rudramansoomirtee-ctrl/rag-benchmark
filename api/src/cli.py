@@ -328,6 +328,88 @@ def metrics_by_type(
 
 
 @app.command()
+def retrieval_eval(
+    dataset: str = typer.Option("multihop", "--dataset"),
+    split: str = typer.Option("eval", "--split"),
+    k: int = typer.Option(10, "--k"),
+    limit: int = typer.Option(None, "--limit"),
+    output: str = typer.Option("/data/results/", "--output"),
+):
+    """Retrieval-only eval (Tang & Yang Table 5 style): MRR@k, MAP@k, Hits@4/Hits@k.
+
+    Runs the shared `retrieve()` over each query and scores the ranked chunk_ids
+    against `relevant_chunk_ids`. Independent of the A/B/E/F systems and of any
+    experiment — a pure probe of the retriever.
+
+    CAVEAT — granularity: this repo indexes MultiHop at ARTICLE/URL granularity
+    (one doc per article), whereas Table 5 retrieves over ~256-token PASSAGES. The
+    article-hit task is easier, so these numbers will read HIGHER than Table 5 and
+    are NOT directly comparable. Treat this as a "does the retriever find the right
+    articles" sanity check; see README for the passage-level caveat. The pipeline
+    here is also hybrid(BM25+dense)+rerank, not a single dense Table 5 row.
+    """
+    from src.retrieval.retrieve import retrieve
+    from src.evaluation.metrics import (
+        reciprocal_rank_at_k, average_precision_at_k, hit_at_k, recall_at_k,
+    )
+
+    session = get_session()
+    try:
+        queries = session.scalars(
+            select(Query).where(Query.dataset == dataset, Query.split == split).order_by(Query.id)
+        ).all()
+    finally:
+        session.close()
+    if limit:
+        queries = queries[:limit]
+
+    mrr = ap = h4 = hk = rec = 0.0
+    n = 0
+    for q in track(queries, description="retrieval-eval"):
+        if not q.relevant_chunk_ids:
+            continue
+        ranked = [h["chunk_id"] for h in retrieve(q.query_text, top_k=k)]
+        mrr += reciprocal_rank_at_k(ranked, q.relevant_chunk_ids, k)
+        ap += average_precision_at_k(ranked, q.relevant_chunk_ids, k)
+        h4 += hit_at_k(ranked, q.relevant_chunk_ids, 4)
+        hk += hit_at_k(ranked, q.relevant_chunk_ids, k)
+        rec += recall_at_k(ranked, q.relevant_chunk_ids, k)
+        n += 1
+
+    if not n:
+        console.print("[red]no scorable queries (missing relevant_chunk_ids?)[/red]")
+        return
+
+    row = {
+        "dataset": dataset,
+        "split": split,
+        "k": k,
+        "n_queries": n,
+        "granularity": "article/URL (NOT passage-level — not directly comparable to Table 5)",
+        "pipeline": f"{settings.embedding_model} + hybrid(BM25,RRF) + rerank({settings.reranker_model})",
+        f"MRR@{k}": round(mrr / n, 4),
+        f"MAP@{k}": round(ap / n, 4),
+        "Hits@4": round(h4 / n, 4),
+        f"Hits@{k}": round(hk / n, 4),
+        f"Recall@{k}": round(rec / n, 4),
+    }
+
+    table = Table(title=f"Retrieval eval — {dataset}/{split} (n={n}, article-level)")
+    table.add_column("Metric")
+    table.add_column("Value")
+    for key in (f"MRR@{k}", f"MAP@{k}", "Hits@4", f"Hits@{k}", f"Recall@{k}"):
+        table.add_row(key, f"{row[key]:.4f}")
+    console.print(table)
+    console.print(f"[dim]pipeline: {row['pipeline']}[/dim]")
+    console.print(f"[yellow]granularity: {row['granularity']}[/yellow]")
+
+    out = Path(output)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"retrieval_eval_{dataset}_{split}.json").write_text(json.dumps(row, indent=2))
+    console.print(f"[green]wrote[/green] {out}/retrieval_eval_{dataset}_{split}.json")
+
+
+@app.command()
 def export(
     experiment: int = typer.Option(..., "--experiment"),
     fmt: str = typer.Option("json", "--format"),

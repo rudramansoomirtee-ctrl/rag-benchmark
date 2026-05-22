@@ -27,6 +27,39 @@ def recall_at_k(retrieved: list[str], relevant: list[str], k: int = 5) -> float:
     return sum(1 for r in relevant if r in top) / len(relevant)
 
 
+def reciprocal_rank_at_k(retrieved: list[str], relevant: list[str], k: int = 10) -> float:
+    """1 / (rank of the first relevant item) within top-k; 0 if none. Mean → MRR@k."""
+    relevant_set = set(relevant)
+    for i, r in enumerate(retrieved[:k], start=1):
+        if r in relevant_set:
+            return 1.0 / i
+    return 0.0
+
+
+def average_precision_at_k(retrieved: list[str], relevant: list[str], k: int = 10) -> float:
+    """Average precision over the relevant items in top-k; mean → MAP@k.
+
+    Normalised by min(#relevant, k) — the common IR convention; check this matches
+    the target paper's MAP definition before comparing absolute values.
+    """
+    if not relevant:
+        return 0.0
+    relevant_set = set(relevant)
+    hits = 0
+    score = 0.0
+    for i, r in enumerate(retrieved[:k], start=1):
+        if r in relevant_set:
+            hits += 1
+            score += hits / i
+    return score / min(len(relevant_set), k)
+
+
+def hit_at_k(retrieved: list[str], relevant: list[str], k: int = 10) -> float:
+    """Hit rate: 1.0 if at least one relevant item is in top-k, else 0.0. Mean → Hits@k."""
+    relevant_set = set(relevant)
+    return 1.0 if any(r in relevant_set for r in retrieved[:k]) else 0.0
+
+
 def _normalize(s: str) -> str:
     s = s.lower().strip()
     s = re.sub(r"\s+", " ", s)

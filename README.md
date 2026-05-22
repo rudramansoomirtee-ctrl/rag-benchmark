@@ -218,6 +218,36 @@ wins on comparison/temporal, B on inference. Pure post-hoc, no schema change:
 docker compose run --rm api python -m src.cli metrics-by-type --experiment <id>
 ```
 
+## Retrieval validation (Tang & Yang Table 5)
+
+`retrieval-eval` probes the retriever alone — independent of A/B/E/F — and reports
+MRR@k, MAP@k, Hits@4 and Hits@k over the eval set:
+
+```bash
+docker compose run --rm api python -m src.cli retrieval-eval --dataset multihop --k 10
+```
+
+**Read this before comparing to the paper.** Two things make these numbers *not*
+a like-for-like Table 5 row:
+
+1. **Granularity (the big one).** This repo indexes MultiHop at **article/URL**
+   granularity — one document per article — so a "hit" means retrieving the right
+   *article*. Table 5 retrieves over **~256-token passages**, so a "hit" means the
+   right *passage*. Finding the right article out of ~609 is a much easier task
+   than the right passage out of several thousand, so our numbers will read
+   **higher** than Table 5 and are not directly comparable.
+2. **Pipeline.** Ours is hybrid (BM25 + `llm-embedder` dense, RRF) → `ms-marco-MiniLM`
+   cross-encoder rerank. Table 5 rows are single dense embedders, optionally with
+   `bge-reranker-large`. Different first stage, different reranker.
+
+So `retrieval-eval` is a sound **"does the retriever surface the right articles"**
+sanity check, and the right way to defend the downstream B-vs-F claims is to state
+the article-level retrieval quality explicitly. A *literal* Table 5 replication
+needs passage-level (256-token) chunking + a fact→passage gold mapping + a separate
+index — a deliberate change to the URL-keyed design, not yet built. Compare against
+the `llm-embedder` row of Table 5 in arXiv:2401.15391 (the best reranked row there
+reaches ≈ Hits@10 0.747 / Hits@4 0.663).
+
 ## Implementation status
 
 | File                                 | Status        | Notes                                                                          |

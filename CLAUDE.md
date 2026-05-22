@@ -305,6 +305,7 @@ hhem_threshold          = 0.5                    # overridden post-calibration
 | 2 | All systems                            | `phoenix_trace_id` always `None`                           | No SQL→Phoenix link from `runs`   |
 | 3 | `evaluation/runner.py`                 | Uses `contains_match` for MultiHop (= paper's containment metric) | OK as primary; `exact_match`/CRAG are stricter secondaries |
 | 4 | `cli.py:compute_metrics`               | Accuracy denominator includes `is_correct IS NULL` rows    | Underreports accuracy             |
+| 5 | `datasets/multihop.py` + indexer       | MultiHop indexed at **article/URL** granularity, not 256-token passages | `retrieval-eval` numbers read higher than & aren't comparable to Tang & Yang Table 5; literal replication needs passage-level chunking + fact→passage gold |
 
 Fix only when explicitly asked. When asked, fix only the requested item.
 
@@ -339,6 +340,7 @@ docker compose run --rm api python -m src.cli run-experiment --name ksweep --sys
 docker compose run --rm api python -m src.cli compute-metrics --experiment N
 docker compose run --rm api python -m src.cli judge --experiment N            # CRAG LLM-as-judge (post-hoc, resumable)
 docker compose run --rm api python -m src.cli metrics-by-type --experiment N  # accuracy by question type
+docker compose run --rm api python -m src.cli retrieval-eval --dataset multihop --k 10  # MRR@k/MAP@k/Hits@k probe
 docker compose run --rm api python -m src.cli export --experiment N
 ```
 
