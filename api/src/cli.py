@@ -243,7 +243,10 @@ def judge(
         if limit:
             rows = rows[:limit]
 
-        console.print(f"[bold]judging {len(rows)} runs[/bold] for experiment {experiment}")
+        console.print(
+            f"[bold]judging {len(rows)} runs[/bold] for experiment {experiment} "
+            f"(judge model: {settings.judge_model or settings.litellm_model})"
+        )
         counts: Counter = Counter()
         total_cost = 0.0
         for run, q in track(rows, description="LLM-as-judge"):

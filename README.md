@@ -209,6 +209,10 @@ docker compose run --rm api python -m src.cli judge --experiment <id> --system B
 docker compose run --rm api python -m src.cli compute-metrics --experiment <id>  # fills the two columns
 ```
 
+The judge model is **independent of generation**: set `JUDGE_MODEL` (any LiteLLM
+provider — `bedrock/…`, `deepseek/deepseek-chat`, `gemini/…`, `openai/…`) to pair
+cheap generation with a strong, reliable judge. It defaults to `LITELLM_MODEL`.
+
 **Per-question-type breakdown.** MultiHop tags each query `inference` /
 `comparison` / `temporal` / `null` (in `queries.metadata['question_type']`).
 `metrics-by-type` breaks accuracy out by type per system — the hypothesis being F

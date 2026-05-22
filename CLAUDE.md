@@ -241,7 +241,9 @@ Secondary, opt-in: a **CRAG LLM-as-judge** (`evaluation/judge.py`, Yang et al. 2
 rubric perfect/acceptable/missing/incorrect → 1/0.5/0/−1), run post-hoc via
 `cli.py:judge` (idempotent: only judges rows with `answer` and no `llm_judge_label`)
 and aggregated into `metrics.crag_score`. Non-deterministic in principle (run at
-`temperature=0`), which is why it is secondary and never the headline number.
+`temperature=0`), which is why it is secondary and never the headline number. The
+judge uses `settings.judge_model` (falls back to `litellm_model`) and is
+provider-agnostic — pair cheap generation with a strong, independent judge.
 
 ## Database schema (`api/src/db/models.py`)
 
@@ -275,6 +277,7 @@ database_url            = "postgresql+psycopg://rag:ragbench@postgres:5432/ragbe
 opensearch_url          = "http://opensearch:9200"
 phoenix_collector_endpoint = "http://phoenix:6006"
 litellm_model           = "bedrock/anthropic.claude-haiku-4-5-20251001-v1:0"
+judge_model             = None    # LLM-as-judge model; falls back to litellm_model. Lets you pair cheap generation + strong judging
 aws_region              = "eu-west-2"
 embedding_model         = "BAAI/llm-embedder"   # 768-dim
 embedding_dim           = 768
