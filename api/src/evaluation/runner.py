@@ -11,6 +11,7 @@ The runner is resumable: the UNIQUE(experiment_id, system, query_id) constraint
 on `runs` means re-running this picks up where it left off — useful when Bedrock
 throttles mid-eval.
 """
+import logging
 from typing import Callable
 
 from sqlalchemy import select
@@ -27,6 +28,8 @@ from src.systems.system_a import SystemA
 from src.systems.system_b import SystemB
 from src.systems.system_e import SystemE
 from src.systems.system_f import SystemF
+
+logger = logging.getLogger("rag.runner")
 
 
 # Values are zero-arg factories so a system can be registered under several
@@ -126,6 +129,10 @@ def run_experiment(
             f"[bold]Experiment[/bold] [cyan]{name}[/cyan] (id={exp_id}) — "
             f"{len(queries)} queries × {len(systems)} systems = {len(queries) * len(systems)} runs"
         )
+        logger.info(
+            "experiment '%s' id=%s: %d queries × %d systems (%s); selection=%s",
+            name, exp_id, len(queries), len(systems), ",".join(systems), selection.get("method"),
+        )
 
         # Instantiate systems once
         system_instances: dict[str, System] = {s: SYSTEM_REGISTRY[s]() for s in systems}
@@ -139,6 +146,7 @@ def run_experiment(
             console=console,
         ) as progress:
             for sys_name, system in system_instances.items():
+                logger.info("system %s: %d queries", sys_name, len(queries))
                 task = progress.add_task(f"System {sys_name}", total=len(queries))
                 for q in queries:
                     _run_one(session, exp_id, sys_name, system, q)
@@ -183,7 +191,7 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
     try:
         result: RunResult = system.answer(q.query_text)
     except Exception as e:
-        Console().print(f"[red]System {sys_name} failed on query {q.id}: {e}[/red]")
+        logger.warning("system %s failed on query %s: %s", sys_name, q.id, e)
         # Stub row so the UNIQUE upsert skips this query on resume.
         # Clear with `DELETE FROM runs WHERE answer IS NULL` to retry failures.
         stmt = insert(Run).values(
@@ -219,3 +227,7 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
     ).on_conflict_do_nothing(index_elements=["experiment_id", "system", "query_id"])
     session.execute(stmt)
     session.commit()
+    logger.debug(
+        "%s q%s: correct=%s steps=%s cost=$%.4f %sms",
+        sys_name, q.id, is_correct, result.n_steps, float(result.cost_usd or 0), result.latency_ms,
+    )

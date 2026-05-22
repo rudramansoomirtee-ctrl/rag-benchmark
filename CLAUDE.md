@@ -357,6 +357,10 @@ docker compose run --rm api python -m src.cli export --experiment N
 
 Three tabs (Ask / Data / Experiments). Covers fast interactive paths only.
 `run-experiment` and `calibrate` deliberately remain CLI-only (too long for HTTP).
+Experiment detail surfaces config/selection, the full metrics row (incl.
+`accuracy_exact`, `crag_score`, steps), a per-question-type table
+(`/api/experiments/{id}/by-type`), and per-run rows (judge label, steps, cost).
+`LOG_LEVEL=DEBUG` (env) gives per-run + per-agent-step logs; Phoenix has the spans.
 
 ### Phoenix at `http://localhost:6006`
 

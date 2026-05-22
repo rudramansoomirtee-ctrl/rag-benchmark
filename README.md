@@ -261,6 +261,13 @@ index — a deliberate change to the URL-keyed design, not yet built. Compare ag
 the `llm-embedder` row of Table 5 in arXiv:2401.15391 (the best reranked row there
 reaches ≈ Hits@10 0.747 / Hits@4 0.663).
 
+## Logs & transparency
+
+- **Live logs:** `LOG_LEVEL=INFO` (default) prints experiment/system milestones and per-query failures; **`LOG_LEVEL=DEBUG`** adds a per-run line (correct / steps / cost / latency) and System B's per-step decisions (reformulate vs. answer). Set it in `.env`.
+- **SPA** (`localhost:8000/` → Experiments → click a row) shows: the run **config/selection** (sample, seed, model, top_k, max steps), the metrics table incl. **Exact / CRAG / Steps**, a **per-question-type** breakdown, and per-run rows with **judge label, steps, cost** and the gold answer (hover the answer cell).
+- **Phoenix** (`localhost:6006`): the deepest view — every span (retrieve → decide → answer), tokens and cost per call.
+- **Files:** `export` dumps full runs + metrics JSON; `metrics-by-type` and `retrieval-eval` also write JSON under `/data/results/`.
+
 ## Implementation status
 
 | File                                 | Status        | Notes                                                                          |

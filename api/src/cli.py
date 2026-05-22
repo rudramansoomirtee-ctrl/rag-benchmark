@@ -9,6 +9,8 @@ Usage:
     docker compose run --rm api python -m src.cli export --experiment 1
 """
 import json
+import logging
+import os
 from pathlib import Path
 
 import typer
@@ -28,7 +30,15 @@ console = Console()
 
 @app.callback()
 def _setup():
-    """Runs before every command — initialise tracing once."""
+    """Runs before every command — init logging + tracing once.
+
+    Set LOG_LEVEL=DEBUG for a per-run / per-agent-step play-by-play.
+    """
+    logging.basicConfig(
+        level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",
+        datefmt="%H:%M:%S",
+    )
     init_tracing()
 
 

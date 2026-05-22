@@ -82,6 +82,8 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       HF_HOME: /models
       PYTHONUNBUFFERED: "1"
+      # INFO = milestones + failures; DEBUG = per-run + per-agent-step play-by-play.
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "8000:8000"
     volumes:

@@ -10,6 +10,7 @@ agent's final iteration — i.e. the evidence it actually used to answer.
 The full per-step trace is on Phoenix; P@k/R@k against the final set is
 what the runner persists.
 """
+import logging
 import time
 
 import instructor
@@ -21,6 +22,8 @@ from src.config import settings
 from src.retrieval.retrieve import retrieve
 from src.systems.base import RunResult
 from src.systems.schemas import AgentAction, AgentDecision
+
+logger = logging.getLogger("rag.system_b")
 
 
 DECIDE_SYSTEM_PROMPT = (
@@ -117,6 +120,12 @@ def _decide_node(state: AgentState) -> AgentState:
         except Exception:
             cost = 0.0
     state["cost_usd"] += cost
+
+    logger.debug(
+        "B step %s/%s action=%s%s",
+        state["n_steps"], state["max_agent_steps"], decision.action.value,
+        f" reformulate={decision.reformulated_query!r}" if decision.action == AgentAction.REFORMULATE else "",
+    )
 
     if decision.action == AgentAction.ANSWER or state["n_steps"] >= state["max_agent_steps"]:
         state["final_answer"] = decision.final_answer or "No answer produced."
