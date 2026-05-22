@@ -259,7 +259,7 @@ reaches ≈ Hits@10 0.747 / Hits@4 0.663).
 | `src/datasets/multihop.py`           | implemented   | Loads `corpus` + `MultiHopRAG` HF configs; URL-keyed chunks; idempotent re-run |
 | `src/datasets/ragtruth.py`           | implemented   | `hallucination` derived from non-empty `labels` span list                      |
 | `src/evaluation/runner.py`           | implemented   | Per-query failures persist a stub row so resume skips them                     |
-| `src/systems/system_b.py`            | partial       | Loop runs; `tokens_in/out` and `cost_usd` still 0 — affects B `$/correct`      |
+| `src/systems/system_b.py`            | implemented   | Per-instance budget (B1/B3/B5); cost via `response_cost` + litellm-pricing fallback |
 | `src/retrieval/opensearch_client.py` | hybrid stub   | `hybrid_search` falls back to k-NN; needs OS search pipeline or client-side RRF |
 | `src/evaluation/metrics.py`          | done          | Runner uses `contains_match`; switch to `exact_match` for MultiHop paper compliance |
 
@@ -304,9 +304,9 @@ docker compose run --rm api python -m src.cli export --experiment 2
 
 ### Known caveats that affect headline numbers
 
-- **B cost can under-report** if `system_b.py`'s instructor raw response carries no
-  `response_cost`; `$/correct` and `total_cost_usd` for System B then read as 0 in the
-  metrics table.
+- **B cost** is tracked from `response_cost`, falling back to `litellm.cost_per_token`
+  from the usage token counts when the instructor response omits it — so System B's
+  `$/correct` no longer silently reads 0 (requires the model in litellm's pricing map).
 - **Accuracy denominator includes failed runs** (rows with `is_correct IS NULL`) in
   `compute-metrics`. Either delete those rows before aggregating, or filter the
   denominator in `cli.py:compute_metrics`.

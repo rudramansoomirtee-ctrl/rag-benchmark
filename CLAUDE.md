@@ -78,8 +78,8 @@ n_steps, tokens_in, tokens_out, latency_ms, cost_usd, phoenix_trace_id`.
 | Retrieve              | once       | each loop iter                 |
 | LLM calls per query   | 1          | N × decide + (final synthesis) |
 | Reformulates query    | no         | yes (typed via `instructor`)   |
-| Max steps             | n/a        | `settings.max_agent_steps = 5` |
-| Cost accuracy         | ✅         | ⚠️ tokens/cost hardcoded to 0  |
+| Max steps             | n/a        | per-instance (B1/B3/B5); default `settings.max_agent_steps = 5` |
+| Cost accuracy         | ✅         | ✅ usage tokens + response_cost, falls back to litellm pricing |
 
 **System B agent state machine** (`systems/system_b.py`):
 ```
@@ -304,7 +304,7 @@ hhem_threshold          = 0.5                    # overridden post-calibration
 
 | # | Where                                  | What                                                       | Impact                            |
 |---|----------------------------------------|------------------------------------------------------------|-----------------------------------|
-| 1 | `systems/system_b.py`                  | `cost_usd` can read 0 if instructor raw lacks response_cost | B `$/correct` may read 0          |
+| 1 | `systems/system_b.py`                  | ~~`cost_usd` reads 0 if instructor raw lacks response_cost~~ **fixed**: falls back to `litellm.cost_per_token` from usage | resolved (needs model in litellm pricing map) |
 | 2 | All systems                            | `phoenix_trace_id` always `None`                           | No SQL→Phoenix link from `runs`   |
 | 3 | `evaluation/runner.py`                 | Uses `contains_match` for MultiHop (= paper's containment metric) | OK as primary; `exact_match`/CRAG are stricter secondaries |
 | 4 | `cli.py:compute_metrics`               | Accuracy denominator includes `is_correct IS NULL` rows    | Underreports accuracy             |

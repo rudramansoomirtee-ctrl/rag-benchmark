@@ -97,11 +97,26 @@ def _decide_node(state: AgentState) -> AgentState:
     )
 
     usage = getattr(raw, "usage", None)
-    if usage is not None:
-        state["tokens_in"] += int(getattr(usage, "prompt_tokens", 0) or 0)
-        state["tokens_out"] += int(getattr(usage, "completion_tokens", 0) or 0)
+    tin = int(getattr(usage, "prompt_tokens", 0) or 0) if usage is not None else 0
+    tout = int(getattr(usage, "completion_tokens", 0) or 0) if usage is not None else 0
+    state["tokens_in"] += tin
+    state["tokens_out"] += tout
+
+    # Prefer LiteLLM's response_cost; fall back to its pricing map from the token
+    # counts when instructor's tool-use response omits it (the old gap that left
+    # B's $/correct reading 0 and broke the sweep's cost axis).
     hidden = getattr(raw, "_hidden_params", None) or {}
-    state["cost_usd"] += float(hidden.get("response_cost") or 0.0)
+    cost = float(hidden.get("response_cost") or 0.0)
+    if not cost and (tin or tout):
+        try:
+            from litellm import cost_per_token
+            pc, cc = cost_per_token(
+                model=settings.litellm_model, prompt_tokens=tin, completion_tokens=tout
+            )
+            cost = float(pc) + float(cc)
+        except Exception:
+            cost = 0.0
+    state["cost_usd"] += cost
 
     if decision.action == AgentAction.ANSWER or state["n_steps"] >= state["max_agent_steps"]:
         state["final_answer"] = decision.final_answer or "No answer produced."
