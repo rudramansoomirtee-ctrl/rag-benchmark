@@ -20,7 +20,7 @@ from litellm import completion
 
 from src.config import settings
 from src.llm.client import generate
-from src.retrieval.retrieve import retrieve
+from src.retrieval.retrieve import format_context, retrieve
 from src.systems.base import RunResult
 from src.systems.schemas import Decomposition
 from src.systems.system_a import ANSWER_SYSTEM_PROMPT
@@ -86,9 +86,7 @@ class SystemF:
         ranked_lists = [retrieve(q, top_k=settings.top_k) for q in queries]
         fused = _rrf_fuse(ranked_lists)
 
-        context = "\n\n".join(
-            f"[{h['chunk_id']}] {h['text']}" for h in fused[: settings.top_k]
-        )
+        context = format_context(fused[: settings.top_k])
         gen = generate(
             messages=[
                 {"role": "system", "content": ANSWER_SYSTEM_PROMPT},

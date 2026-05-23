@@ -4,10 +4,15 @@ Repo memory for Claude Code sessions. Read this before editing.
 
 ## What this is
 
-Reproducible Dockerised benchmark of RAG systems (A naive, B agentic, E vendored-OpenRag, F decomposition)
+Reproducible Dockerised benchmark of RAG systems (A naive, B agentic, F decomposition)
 against MultiHop-RAG and RAGTruth, with every metric persisted to Postgres
 and every span traced to Phoenix. Single-user research tool for a dissertation
 — **not** a production service.
+
+System E (vendored OpenRag) has been **removed** from the project. It depended on
+OpenAI/Cohere external APIs that are not part of the dissertation's working setup;
+the SOTA reference role it played is now handled by citation (Ammann et al. 2025;
+OpenRag paper) rather than an in-repo run. Historical E runs remain in the DB.
 
 ## Stack (4 containers, `docker-compose.yml`)
 
@@ -44,16 +49,17 @@ api/src/
 ├── evaluation/{runner,metrics,calibration,judge}.py
 ├── faithfulness/hhem.py        # vectara/hallucination_evaluation_model
 ├── llm/client.py               # LiteLLM wrapper
-├── retrieval/{embeddings,opensearch_client,indexer}.py
-└── systems/{base,schemas,system_a,system_b,system_e,system_f}.py
+├── retrieval/{embeddings,opensearch_client,indexer,retrieve}.py
+└── systems/{base,schemas,system_a,system_b,system_f}.py
 notebooks/analysis.py           # Marimo notebook for Chapter 4 figures
 ```
 
 ## The systems
 
-Lineup: **A** (naive), **B** (agentic loop), **E** (vendored OpenRag — different
-retriever), **F** (query decomposition). Faithfulness (HHEM) is computed for every
-run, not by a system — the old passive Systems C/D were folded into that metric.
+Lineup: **A** (naive), **B** (agentic loop), **F** (query decomposition).
+Faithfulness (HHEM) is computed for every run, not by a system — the old passive
+Systems C/D were folded into that metric. System E (vendored OpenRag) was removed;
+see top-of-file note.
 
 All implement `systems/base.py:System` protocol → `answer(query: str) -> RunResult`.
 
@@ -70,7 +76,7 @@ n_steps, tokens_in, tokens_out, latency_ms, cost_usd, phoenix_trace_id`.
 | Top-k            | `settings.top_k = 5`                                          |
 | Trace capture    | `tracing.py:init_tracing` — auto-instruments LangChain + LiteLLM via openinference |
 
-### Per-system spec (A and B; E and F have their own sections below)
+### Per-system spec (A and B; F has its own section below)
 
 | Property              | A          | B                              |
 |-----------------------|------------|--------------------------------|
@@ -103,40 +109,24 @@ RETRIEVE → DECIDE ──(reformulate)──┐
   no-iteration ablation.
 
 **Faithfulness — HHEM on every run** (`evaluation/runner.py:_faithfulness`, not a system):
-- Computed for **every** system's run (A/B/E/F) ⇒ faithfulness is a column for all.
+- Computed for **every** system's run (A/B/F) ⇒ faithfulness is a column for all.
 - Re-fetches retrieved chunk text via `mget(retrieved_chunk_ids)`, builds
   `premise = "\n\n".join(texts)`, scores `faithfulness/hhem.py:score([(premise, answer)])`.
 - `flagged = score < settings.hhem_threshold`. Empty retrieval / HHEM error →
   `(None, None)` and the run still persists.
 - Replaces the old passive Systems C/D, which only attached this score to A/B.
 
-### System E (vendored OpenRag) — `systems/system_e.py`
+### Context formatting — `retrieval/retrieve.py:format_context`
 
-OpenRag's `ultimate_rag` engine is vendored as top-level packages
-(`api/ultimate_rag/`, `api/knowledge_base/`) and called **in-process** — no HTTP.
-
-**E is an uncontrolled SOTA reference, not a controlled comparator.** Versus A it
-changes embeddings (OpenAI), index/units (RAPTOR forest with `gpt-4o-mini` summary
-nodes), retrieval strategy (HyDE+BM25+decomposition) and reranking (Cohere) all at
-once — so an E-vs-A/B/F gap is not attributable to any single factor. E is the
-"strong off-the-shelf stack" yardstick; A/B/F are the controlled contrast (retriever
-+ generator fixed, only orchestration varies). Frame it this way in the writing.
-
-- Retrieves over an **in-memory RAPTOR forest** (not OpenSearch), built once via
-  `cli.py:build-openrag-index` and persisted to `settings.openrag_tree_dir`
-  (`/data/openrag_trees`). Loaded lazily by an `lru_cache` singleton.
-- All `ultimate_rag` / `knowledge_base` imports are **deferred inside the
-  singleton/build fn** so importing `system_e` (which `runner.py` does next to
-  A-D) never needs OpenRag's deps or a built tree. Keep them lazy.
-- OpenRag returns chunk text without a URL → System E recovers the article URL by
-  text-containment against the Postgres corpus, so it's scored URL-level like A-D.
-- Answer generation reuses System A's prompt + the shared Bedrock LLM.
-- `cost_usd` covers only the answer call (OpenRag's OpenAI/Cohere spend is external).
-
-System E **deliberately waives** three invariants below (do not "fix"): it adds
-deps (openai/cohere/tiktoken/umap-learn/rank-bm25/tenacity), uses an external
-rerank API (Cohere), and bridges async→sync via `asyncio.run`. These apply to
-System E only; A-D remain dep-light, local, and sync.
+A/B/F share `format_context(hits)` to build the per-chunk strings fed to the LLM.
+Each chunk is rendered as `[<chunk_id>] (source: <X> | title: <Y>) <text>`,
+surfacing `metadata.source` and `metadata.title` from the chunk's dataset metadata.
+This closes a benchmark-specific gap: MultiHop-RAG identifies articles by their
+`source` field ("the Hacker News article on The Epoch Times" → an NBC URL tagged
+`source: Hacker News`), but the chunk text/URL alone doesn't expose it. Without
+this, comparison queries that name a publisher fail across every system even when
+the right chunk is retrieved. Don't revert this without re-running comparison-type
+queries — the regression is visible.
 
 ### System F (query decomposition) — `systems/system_f.py`
 
@@ -332,6 +322,10 @@ From the design doc (`rag-benchmark-stack-guide-for llm.md` §2):
   and do not remove it as a "reintroduced" anti-pattern.)
 - **No new Python dependencies** without explicit user approval. Stick to `requirements.txt`.
 - **No tests** unless explicitly requested (none exist; not on the dissertation critical path).
+- **No System E (vendored OpenRag), no OpenAI/Cohere deps.** Removed in favour of
+  Bedrock-only stack. Cite Ammann et al. (2025) and OpenRag's published numbers as
+  the SOTA reference instead of running an in-repo OpenRag baseline. Do not
+  re-vendor `ultimate_rag` / `knowledge_base` without an explicit decision.
 
 ## Operating the repo
 
@@ -342,9 +336,9 @@ docker compose run --rm api python -m src.cli healthcheck
 docker compose run --rm api python -m src.cli ingest-dataset {multihop|ragtruth}
 docker compose run --rm api python -m src.cli index-corpus multihop
 docker compose run --rm api python -m src.cli calibrate
-docker compose run --rm api python -m src.cli run-experiment --name X --systems A,B,E,F --datasets multihop
+docker compose run --rm api python -m src.cli run-experiment --name X --systems A,B,F --datasets multihop
 docker compose run --rm api python -m src.cli run-experiment --name smoke --systems A --datasets multihop --limit 20  # quick smoke test (first 20)
-docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,E,F --datasets multihop --sample 500 --seed 42  # defensible stratified subset
+docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,B,F --datasets multihop --sample 500 --seed 42  # defensible stratified subset
 docker compose run --rm api python -m src.cli run-experiment --name ksweep --systems B1,B3,B5 --datasets multihop  # B iteration sweep
 docker compose run --rm api python -m src.cli compute-metrics --experiment N
 docker compose run --rm api python -m src.cli judge --experiment N            # CRAG LLM-as-judge (post-hoc, resumable)

@@ -22,10 +22,6 @@ RUN python -c "from sentence_transformers import SentenceTransformer; \
     SentenceTransformer('BAAI/llm-embedder')"
 
 COPY src/ ./src/
-# Vendored OpenRag engine for System E — top-level packages so the package's
-# own absolute imports (`from knowledge_base...`, `from ultimate_rag...`) resolve.
-COPY ultimate_rag/ ./ultimate_rag/
-COPY knowledge_base/ ./knowledge_base/
 COPY alembic.ini .
 COPY pyproject.toml .
 

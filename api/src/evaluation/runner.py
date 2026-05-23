@@ -26,7 +26,6 @@ from src.evaluation.metrics import exact_match, contains_match
 from src.systems.base import System, RunResult
 from src.systems.system_a import SystemA
 from src.systems.system_b import SystemB
-from src.systems.system_e import SystemE
 from src.systems.system_f import SystemF
 
 logger = logging.getLogger("rag.runner")
@@ -41,7 +40,6 @@ SYSTEM_REGISTRY: dict[str, Callable[[], System]] = {
     "B1": lambda: SystemB(max_agent_steps=1),
     "B3": lambda: SystemB(max_agent_steps=3),
     "B5": lambda: SystemB(max_agent_steps=5),
-    "E": SystemE,
     "F": SystemF,
 }
 

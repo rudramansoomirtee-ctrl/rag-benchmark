@@ -4,7 +4,7 @@ Usage:
     docker compose run --rm api python -m src.cli ingest-dataset multihop
     docker compose run --rm api python -m src.cli index-corpus multihop
     docker compose run --rm api python -m src.cli calibrate
-    docker compose run --rm api python -m src.cli run-experiment --name v1 --systems A,B,C,D --datasets multihop
+    docker compose run --rm api python -m src.cli run-experiment --name v1 --systems A,B,F --datasets multihop
     docker compose run --rm api python -m src.cli compute-metrics --experiment 1
     docker compose run --rm api python -m src.cli export --experiment 1
 """
@@ -66,22 +66,6 @@ def index_corpus(name: str):
 
 
 @app.command()
-def build_openrag_index(name: str = "multihop"):
-    """Build & persist the vendored OpenRag RAPTOR forest for System E (one-time).
-
-    Reads the dataset corpus from Postgres, runs RAPTOR (OpenAI embeddings +
-    gpt-4o-mini summaries), and saves a pickle under settings.openrag_tree_dir.
-    Requires OPENAI_API_KEY; re-running rebuilds the tree.
-    """
-    from src.systems.system_e import build_index
-    n = build_index(name)
-    console.print(
-        f"[green]built OpenRag tree[/green] '{settings.openrag_tree_name}' "
-        f"from {n} articles -> {settings.openrag_tree_dir}"
-    )
-
-
-@app.command()
 def calibrate(
     calibration_split: str = "ragtruth.calibration",
     output: str = "/data/results/threshold.json",
@@ -114,7 +98,7 @@ def calibrate(
 @app.command()
 def run_experiment(
     name: str = typer.Option(..., "--name"),
-    systems: str = typer.Option("A,B,C,D", "--systems"),
+    systems: str = typer.Option("A,B,F", "--systems"),
     datasets: str = typer.Option("multihop", "--datasets"),
     split: str = typer.Option("eval", "--split"),
     limit: int = typer.Option(None, "--limit", help="Quick smoke test: first N queries by id (NOT random; use --sample for a defensible subset)."),
@@ -362,7 +346,7 @@ def retrieval_eval(
     """Retrieval-only eval (Tang & Yang Table 5 style): MRR@k, MAP@k, Hits@4/Hits@k.
 
     Runs the shared `retrieve()` over each query and scores the ranked chunk_ids
-    against `relevant_chunk_ids`. Independent of the A/B/E/F systems and of any
+    against `relevant_chunk_ids`. Independent of the A/B/F systems and of any
     experiment — a pure probe of the retriever.
 
     CAVEAT — granularity: this repo indexes MultiHop at ARTICLE/URL granularity

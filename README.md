@@ -1,6 +1,6 @@
 # RAG Benchmark Stack
 
-Reproducible Dockerised environment to evaluate Systems A/B/E/F against MultiHop-RAG and RAGTruth, with HHEM faithfulness scored on every run.
+Reproducible Dockerised environment to evaluate Systems A/B/F against MultiHop-RAG and RAGTruth, with HHEM faithfulness scored on every run.
 
 Four services, one `docker compose up`, all telemetry to Phoenix, all metrics to Postgres.
 
@@ -71,7 +71,7 @@ docker compose exec api python -m src.cli calibrate
 # Run the full eval (resumable — re-run on failure picks up where it left off)
 docker compose exec api python -m src.cli run-experiment \
   --name dissertation-final \
-  --systems A,B,E,F \
+  --systems A,B,F \
   --datasets multihop \
   --split eval
 
@@ -91,70 +91,14 @@ marimo edit notebooks/analysis.py
 
 ---
 
-## System E — OpenRag (uncontrolled SOTA reference)
-
-System E runs the OpenRag (`ultimate_rag`) engine under this harness's metrics.
-OpenRag is **vendored into this repo** (`api/ultimate_rag/`, `api/knowledge_base/`)
-and called **in-process** — no separate service, no HTTP. It runs OpenRag's real
-multi-strategy pipeline (HyDE + BM25 + query-decomposition + RAPTOR) with Cohere
-neural reranking, over an in-memory RAPTOR forest built from the MultiHop corpus.
-
-**E is an uncontrolled reference point, not a controlled comparator.** Unlike the
-A/B/F comparison — which holds the retriever *and* the generator LLM fixed so the
-only moving part is orchestration (naive vs. iteration vs. decomposition) — System
-E changes many variables at once relative to A:
-
-- **Embeddings:** OpenAI vs. `BAAI/llm-embedder`.
-- **Index & units:** an in-memory RAPTOR forest with LLM-generated (`gpt-4o-mini`)
-  summary nodes vs. OpenSearch HNSW over raw article chunks.
-- **Retrieval strategy:** HyDE + BM25 + query-decomposition multi-strategy vs. a
-  single dense retrieval.
-- **Reranking:** an external Cohere neural reranker vs. none.
-
-Because these confounds move together, a gap between E and A/B/F **cannot be
-attributed to any single factor.** E therefore answers *"how does a strong,
-well-engineered third-party RAG stack score under our harness and metrics?"* — an
-external SOTA yardstick — and deliberately not *"which component causes the
-difference?"*, which is what the controlled A/B/F contrast is for.
-
-Two further caveats keep E honest: OpenRag returns chunk *text* without a source
-URL, so System E recovers each chunk's article URL by matching the text back to
-the MultiHop corpus and dedupes (to be scored by the same recall@k / precision@k);
-and answer generation reuses the shared Bedrock LLM. This is **not** a reproduction
-of OpenRag's published 72.89% Recall@10 (different metric, chunk granularity, and
-k=10).
-
-```bash
-# 1. OpenRag uses OpenAI (embeddings + gpt-4o-mini summaries) and Cohere (rerank):
-echo "OPENAI_API_KEY=sk-..." >> .env
-echo "COHERE_API_KEY=..."    >> .env
-docker compose build api          # picks up the vendored engine + new deps
-
-# 2. Corpus into Postgres, then build the RAPTOR forest once (~10-30 min + OpenAI
-#    cost; persisted to /data/openrag_trees so reruns reload it):
-docker compose run --rm api python -m src.cli ingest-dataset multihop
-docker compose run --rm api python -m src.cli build-openrag-index multihop
-
-# 3. Smoke-test, then run:
-docker compose run --rm api python -m src.cli run-experiment \
-  --name openrag --systems E --datasets multihop --limit 5
-docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
-```
-
-Caveats: RAPTOR summary nodes / snippets not contained in any single article
-recover no URL and are skipped; `cost_usd` covers only the answer call, not
-OpenRag's retrieval-side OpenAI/Cohere spend; and `asyncio.run` means E is
-driven from the CLI eval path, not the async `/api/ask` route.
-
 ## System F — query decomposition (multi-hop)
 
 System F decomposes a multi-hop question into 2–4 single-hop sub-questions (one
 `instructor`-typed LLM call), retrieves for the original + each sub-question over
 the **same** hybrid+rerank pipeline as A/B, RRF-fuses the results, and answers
 once. Because the retriever is held constant, F-vs-A isolates the *decomposition*
-effect — unlike E, which swaps the whole retriever. It's the decomposition rung
-of the comparison study, distinct from B's iterative reformulation loop. No new
-deps, no keys (Bedrock only).
+effect. It's the decomposition rung of the comparison study, distinct from B's
+iterative reformulation loop. No new deps, no keys (Bedrock only).
 
 System F deliberately mirrors **Ammann, Golde & Akbik (2025)**, *Question
 Decomposition for Retrieval-Augmented Generation* (ACL 2025 Student Research
@@ -228,12 +172,12 @@ docker compose run --rm api python -m src.cli metrics-by-type --experiment <id>
 
 ```bash
 docker compose run --rm api python -m src.cli run-experiment --name smoke --systems A --datasets multihop --limit 20
-docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,E,F --datasets multihop --sample 500 --seed 42
+docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,B,F --datasets multihop --sample 500 --seed 42
 ```
 
 ## Retrieval validation (Tang & Yang Table 5)
 
-`retrieval-eval` probes the retriever alone — independent of A/B/E/F — and reports
+`retrieval-eval` probes the retriever alone — independent of A/B/F — and reports
 MRR@k, MAP@k, Hits@4 and Hits@k over the eval set:
 
 ```bash
@@ -313,7 +257,7 @@ docker compose run --rm api python -m src.cli compute-metrics --experiment 1
 
 # 5. Full run
 docker compose run --rm api python -m src.cli run-experiment \
-  --name dissertation-final --systems A,B,E,F --datasets multihop
+  --name dissertation-final --systems A,B,F --datasets multihop
 docker compose run --rm api python -m src.cli compute-metrics --experiment 2
 docker compose run --rm api python -m src.cli export --experiment 2
 ```

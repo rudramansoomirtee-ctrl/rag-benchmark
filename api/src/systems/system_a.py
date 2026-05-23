@@ -8,7 +8,7 @@ filtering, not retrieval quality.
 import time
 
 from src.llm.client import generate
-from src.retrieval.retrieve import retrieve
+from src.retrieval.retrieve import format_context, retrieve
 from src.systems.base import RunResult
 
 
@@ -32,7 +32,7 @@ class SystemA:
     def answer(self, query: str) -> RunResult:
         t0 = time.time()
         hits = retrieve(query)
-        context = "\n\n".join(f"[{h['chunk_id']}] {h['text']}" for h in hits)
+        context = format_context(hits)
 
         result = generate(
             messages=[

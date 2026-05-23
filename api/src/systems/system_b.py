@@ -19,7 +19,7 @@ from litellm import completion
 from typing_extensions import TypedDict
 
 from src.config import settings
-from src.retrieval.retrieve import retrieve
+from src.retrieval.retrieve import format_context, retrieve
 from src.systems.base import RunResult
 from src.systems.schemas import AgentAction, AgentDecision
 
@@ -79,7 +79,7 @@ def _retrieve_node(state: AgentState) -> AgentState:
 
 def _decide_node(state: AgentState) -> AgentState:
     client = instructor.from_litellm(completion)
-    context = "\n\n".join(f"[{h['chunk_id']}] {h['text']}" for h in state["retrieved_chunks"])
+    context = format_context(state["retrieved_chunks"])
 
     decision, raw = client.chat.completions.create_with_completion(
         model=settings.litellm_model,
