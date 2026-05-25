@@ -74,6 +74,8 @@ services:
       LITELLM_MODEL: ${LITELLM_MODEL:-bedrock/anthropic.claude-haiku-4-5-20251001-v1:0}
       # CRAG LLM-as-judge model, independent of generation (defaults to LITELLM_MODEL).
       JUDGE_MODEL: ${JUDGE_MODEL:-}
+      # Reranker provider: "local" (CPU cross-encoder, default) or "bedrock-cohere".
+      RERANK_PROVIDER: ${RERANK_PROVIDER:-local}
       # API keys for cheap generation providers — set only if LITELLM_MODEL/JUDGE_MODEL point at them.
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}

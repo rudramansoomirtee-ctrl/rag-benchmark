@@ -3,6 +3,7 @@
 One `generate()` call works against Bedrock, Anthropic direct, OpenAI, Ollama —
 swap the provider with one env var. Cost is auto-tracked by litellm.
 """
+import instructor
 from litellm import completion
 
 from src.config import settings
@@ -24,3 +25,23 @@ def generate(messages: list[dict], **overrides) -> dict:
         "cost_usd": float(response._hidden_params.get("response_cost") or 0.0),
         "raw": response,
     }
+
+
+def make_instructor_client():
+    """Instructor client configured for the active LITELLM_MODEL.
+
+    Anthropic models use TOOLS mode (the instructor default, validated for our
+    schemas across exp ≤ 9). Amazon Nova on Bedrock doesn't reliably emit a
+    single tool call for our multi-field schemas — it falls back to free-text
+    `<answer>...</answer>` output, which instructor cannot parse. JSON mode
+    bypasses tool calling entirely and asks the model for a JSON object directly
+    in the response text, which Nova handles reliably.
+
+    Note: `max_retries` is a `.create()` arg, not a constructor arg. Per-call
+    overrides happen at the call sites; instructor's default of 3 retries is
+    fine for our schemas under JSON mode.
+    """
+    model = settings.litellm_model.lower()
+    if "nova" in model:
+        return instructor.from_litellm(completion, mode=instructor.Mode.JSON)
+    return instructor.from_litellm(completion)

@@ -15,11 +15,8 @@ a single retrieval over the original query (i.e. System A's retrieval).
 """
 import time
 
-import instructor
-from litellm import completion
-
 from src.config import settings
-from src.llm.client import generate
+from src.llm.client import generate, make_instructor_client
 from src.retrieval.retrieve import format_context, retrieve
 from src.systems.base import RunResult
 from src.systems.schemas import Decomposition
@@ -43,7 +40,7 @@ MAX_SUBQUESTIONS = 4
 
 def _decompose(query: str) -> tuple[list[str], int, int, float]:
     """Return (subquestions, tokens_in, tokens_out, cost_usd) for the decompose call."""
-    client = instructor.from_litellm(completion)
+    client = make_instructor_client()
     decomp, raw = client.chat.completions.create_with_completion(
         model=settings.litellm_model,
         response_model=Decomposition,

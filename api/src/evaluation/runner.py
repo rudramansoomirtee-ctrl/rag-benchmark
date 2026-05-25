@@ -27,6 +27,8 @@ from src.systems.base import System, RunResult
 from src.systems.system_a import SystemA
 from src.systems.system_b import SystemB
 from src.systems.system_f import SystemF
+from src.systems.system_f_tuned import SystemFTuned
+from src.systems.system_g import SystemG
 
 logger = logging.getLogger("rag.runner")
 
@@ -34,6 +36,7 @@ logger = logging.getLogger("rag.runner")
 # Values are zero-arg factories so a system can be registered under several
 # labels with different hyperparameters. B1/B3/B5 are System B at agent-step
 # budgets 1/3/5 — the iteration sweep, runnable side-by-side in one experiment.
+# G1/G3/G5 are the equivalent sweep for System G (multi-tool agentic).
 SYSTEM_REGISTRY: dict[str, Callable[[], System]] = {
     "A": SystemA,
     "B": SystemB,
@@ -41,6 +44,11 @@ SYSTEM_REGISTRY: dict[str, Callable[[], System]] = {
     "B3": lambda: SystemB(max_agent_steps=3),
     "B5": lambda: SystemB(max_agent_steps=5),
     "F": SystemF,
+    "F-tuned": SystemFTuned,
+    "G": SystemG,
+    "G1": lambda: SystemG(max_agent_steps=1),
+    "G3": lambda: SystemG(max_agent_steps=3),
+    "G5": lambda: SystemG(max_agent_steps=5),
 }
 
 
@@ -110,9 +118,9 @@ def run_experiment(
                 "top_k": settings.top_k,
                 "max_agent_steps": settings.max_agent_steps,
                 "agent_steps_by_system": {
-                    s: (int(s[1:]) if s.startswith("B") and s[1:].isdigit() else settings.max_agent_steps)
+                    s: (int(s[1:]) if s[0] in ("B", "G") and s[1:].isdigit() else settings.max_agent_steps)
                     for s in systems
-                    if s.startswith("B")
+                    if s[0] in ("B", "G")
                 },
                 "model": settings.litellm_model,
                 "embedding_model": settings.embedding_model,

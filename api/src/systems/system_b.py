@@ -1,58 +1,70 @@
 """System B: agentic RAG with LangGraph.
 
-State machine: RETRIEVE -> DECIDE -> (REFORMULATE -> RETRIEVE) or ANSWER
-Uses instructor for typed decisions so the agent's action choice cannot
-parse-fail. Retrieval shares the hybrid+rerank pipeline used by A/C/D so
-the comparison isolates agent behaviour from retrieval quality.
+State machine: RETRIEVE -> ROUTE -> (REFORMULATE -> RETRIEVE) or ANSWER
+
+Each iteration does TWO LLM calls:
+  1. A tiny RouteDecision call (one-field schema: action ∈ {reformulate, answer}).
+  2. An execute call — either a free-text `generate()` returning the reformulated
+     query, or a free-text `generate()` returning the final answer using
+     System A's ANSWER_SYSTEM_PROMPT.
+
+The split exists to decouple routing from content generation. The previous
+single-call design (one instructor invocation populating action + reformulated_query
++ final_answer conditionally) was reliable on Anthropic but fragile on Bedrock
+Nova / Qwen3 — those providers either left fields empty or refused to populate
+the multi-field schema at all. With Option-1 two-call routing each LLM call has
+a trivial single-job schema, robust across providers. Cost is roughly ~2× the
+old design per step but makes the orchestration story portable across model
+classes.
+
+Retrieval shares the hybrid+rerank pipeline used by A/F so the comparison
+isolates agent behaviour from retrieval quality.
 
 The persisted `retrieved_chunk_ids` represents the chunks present at the
 agent's final iteration — i.e. the evidence it actually used to answer.
-The full per-step trace is on Phoenix; P@k/R@k against the final set is
-what the runner persists.
 """
 import logging
 import time
 
-import instructor
 from langgraph.graph import StateGraph, END
-from litellm import completion
 from typing_extensions import TypedDict
 
 from src.config import settings
+from src.llm.client import generate, make_instructor_client
 from src.retrieval.retrieve import format_context, retrieve
 from src.systems.base import RunResult
-from src.systems.schemas import AgentAction, AgentDecision
+from src.systems.schemas import AgentAction, RouteDecision
+from src.systems.system_a import ANSWER_SYSTEM_PROMPT
 
 logger = logging.getLogger("rag.system_b")
 
 
-DECIDE_SYSTEM_PROMPT = (
+ROUTE_SYSTEM_PROMPT = (
     "You are an iterative research assistant answering multi-hop questions over "
     "a news corpus.\n"
     "\n"
     "Each step you receive:\n"
-    "- The ORIGINAL multi-hop question (may require connecting facts from MULTIPLE articles).\n"
+    "- The ORIGINAL multi-hop question.\n"
     "- The CURRENT retrieved context (top-k chunks for the latest query).\n"
     "- How many steps you have used out of the budget.\n"
     "\n"
-    "Choose exactly one action:\n"
-    "\n"
-    "1. ANSWER — the current context contains every fact needed. Produce the final\n"
-    "   answer now, synthesising across MULTIPLE chunks if the question is multi-hop.\n"
-    "   Cite chunk IDs in brackets for each claim.\n"
-    "\n"
-    "2. REFORMULATE — at least one fact is still missing or ambiguous. Write a NEW\n"
-    "   query that targets the missing piece. Good reformulations:\n"
-    "   - Name a specific missing entity, date, or relationship rather than rephrasing.\n"
-    "   - Decompose the question into one sub-question if it has multiple parts.\n"
-    "   - Use distinct keywords from the original query — avoid trivial paraphrase.\n"
+    "Choose exactly ONE action:\n"
+    "  - ANSWER: current context contains every fact needed.\n"
+    "  - REFORMULATE: at least one fact is still missing.\n"
     "\n"
     "Hard rules:\n"
-    "- You have a fixed step budget, shown each turn as 'Steps taken: n/budget'.\n"
-    "- On your final allowed step (n == budget) you MUST choose ANSWER from the\n"
-    "  current evidence — never REFORMULATE on the final step.\n"
-    "- Do not invent facts. If context cannot answer, ANSWER with\n"
-    "  'The provided context does not contain the answer.'"
+    "- On the final allowed step (n == budget) you MUST ANSWER.\n"
+    "- Do NOT produce the answer or query in this call — only the action."
+)
+
+REFORMULATE_SYSTEM_PROMPT = (
+    "You write a NEW search query that targets the missing piece of evidence.\n"
+    "\n"
+    "Rules:\n"
+    "- Name the specific missing entity, date, or relationship rather than rephrasing.\n"
+    "- Use distinct keywords from the original query — avoid trivial paraphrase.\n"
+    "- Decompose into ONE sub-question if the original has multiple parts.\n"
+    "- Reply with just the query — no preamble, no quotes."
 )
 
 
@@ -77,37 +89,74 @@ def _retrieve_node(state: AgentState) -> AgentState:
     return state
 
 
-def _decide_node(state: AgentState) -> AgentState:
-    client = instructor.from_litellm(completion)
+def _route_node(state: AgentState) -> AgentState:
+    """Pick ANSWER or REFORMULATE via a tiny one-field instructor call.
+
+    Then execute the chosen route in a follow-up `generate()` call so the
+    content (reformulated query or final answer) comes from a focused, free-text
+    response rather than a conditional field on a multi-field schema.
+    """
+    client = make_instructor_client()
     context = format_context(state["retrieved_chunks"])
+    user_prompt = (
+        f"Original question: {state['original_query']}\n\n"
+        f"Current context:\n{context}\n\n"
+        f"Steps taken: {state['n_steps']}/{state['max_agent_steps']}"
+    )
 
     decision, raw = client.chat.completions.create_with_completion(
         model=settings.litellm_model,
-        response_model=AgentDecision,
+        response_model=RouteDecision,
         aws_region_name=settings.aws_region,
         temperature=0,
         messages=[
-            {"role": "system", "content": DECIDE_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    f"Original question: {state['original_query']}\n\n"
-                    f"Current context:\n{context}\n\n"
-                    f"Steps taken: {state['n_steps']}/{state['max_agent_steps']}"
-                ),
-            },
+            {"role": "system", "content": ROUTE_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
         ],
     )
+    _accumulate_cost(state, raw)
 
+    forced_answer = state["n_steps"] >= state["max_agent_steps"]
+    if decision.action == AgentAction.ANSWER or forced_answer:
+        synth = generate(messages=[
+            {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
+            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {state['original_query']}"},
+        ])
+        state["final_answer"] = synth["content"] or "No answer produced."
+        state["tokens_in"] += synth["tokens_in"]
+        state["tokens_out"] += synth["tokens_out"]
+        state["cost_usd"] += synth["cost_usd"]
+        logger.debug("B step %s/%s -> ANSWER%s", state["n_steps"], state["max_agent_steps"],
+                     " (forced)" if forced_answer and decision.action != AgentAction.ANSWER else "")
+    else:
+        ref = generate(messages=[
+            {"role": "system", "content": REFORMULATE_SYSTEM_PROMPT},
+            {"role": "user", "content": (
+                f"Original question: {state['original_query']}\n\n"
+                f"Current context (insufficient):\n{context}\n\n"
+                "Write the new search query:"
+            )},
+        ])
+        state["current_query"] = (ref["content"] or "").strip() or state["current_query"]
+        state["tokens_in"] += ref["tokens_in"]
+        state["tokens_out"] += ref["tokens_out"]
+        state["cost_usd"] += ref["cost_usd"]
+        logger.debug("B step %s/%s -> REFORMULATE %r", state["n_steps"], state["max_agent_steps"], state["current_query"])
+
+    return state
+
+
+def _accumulate_cost(state: AgentState, raw) -> None:
+    """Pull usage + cost from an instructor `raw` response and accumulate.
+
+    Falls back to litellm's pricing map when the provider's response omits
+    response_cost (the same gap that previously left B's $/correct reading 0)."""
     usage = getattr(raw, "usage", None)
     tin = int(getattr(usage, "prompt_tokens", 0) or 0) if usage is not None else 0
     tout = int(getattr(usage, "completion_tokens", 0) or 0) if usage is not None else 0
     state["tokens_in"] += tin
     state["tokens_out"] += tout
 
-    # Prefer LiteLLM's response_cost; fall back to its pricing map from the token
-    # counts when instructor's tool-use response omits it (the old gap that left
-    # B's $/correct reading 0 and broke the sweep's cost axis).
     hidden = getattr(raw, "_hidden_params", None) or {}
     cost = float(hidden.get("response_cost") or 0.0)
     if not cost and (tin or tout):
@@ -121,19 +170,6 @@ def _decide_node(state: AgentState) -> AgentState:
             cost = 0.0
     state["cost_usd"] += cost
 
-    logger.debug(
-        "B step %s/%s action=%s%s",
-        state["n_steps"], state["max_agent_steps"], decision.action.value,
-        f" reformulate={decision.reformulated_query!r}" if decision.action == AgentAction.REFORMULATE else "",
-    )
-
-    if decision.action == AgentAction.ANSWER or state["n_steps"] >= state["max_agent_steps"]:
-        state["final_answer"] = decision.final_answer or "No answer produced."
-    else:
-        state["current_query"] = decision.reformulated_query or state["current_query"]
-
-    return state
-
 
 def _route(state: AgentState) -> str:
     if state["final_answer"] is not None:
@@ -144,10 +180,10 @@ def _route(state: AgentState) -> str:
 def _build_graph():
     g = StateGraph(AgentState)
     g.add_node("retrieve", _retrieve_node)
-    g.add_node("decide", _decide_node)
+    g.add_node("route", _route_node)
     g.set_entry_point("retrieve")
-    g.add_edge("retrieve", "decide")
-    g.add_conditional_edges("decide", _route, {"retrieve": "retrieve", "end": END})
+    g.add_edge("retrieve", "route")
+    g.add_conditional_edges("route", _route, {"retrieve": "retrieve", "end": END})
     return g.compile()
 
 

@@ -1,5 +1,13 @@
 """Application config — single source of truth, loaded from environment."""
+import litellm
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Drop provider-unsupported params silently (e.g. Anthropic-style `tool_choice`
+# isn't accepted by Amazon Nova). With this off, swapping LITELLM_MODEL to a
+# non-Anthropic Bedrock model raises mid-experiment in any system that uses
+# `instructor` (B/F/G/judge). With it on, Haiku is unaffected (all params remain
+# valid) and Nova/DeepSeek/etc. just work. Set once at module import.
+litellm.drop_params = True
 
 
 class Settings(BaseSettings):
@@ -23,7 +31,20 @@ class Settings(BaseSettings):
     opensearch_index: str = "rag-chunks"
     top_k: int = 5
     retrieval_pool: int = 20
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # BGE-reranker-v2-m3 (568M params) — top of MTEB rerank as of 2024, free,
+    # CPU-tolerable (~50-100ms per pair). Strong open-weight replacement for
+    # Cohere Rerank 3.5 which is not available in eu-west-2. The smaller
+    # cross-encoder/ms-marco-MiniLM-L-6-v2 (22M) was the previous default
+    # (used by experiments 1-9); the swap is meaningful enough to warrant a
+    # full re-run rather than a comparison across configurations.
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    # Reranker provider: "local" (CPU cross-encoder, free, used for exp ≤9) or
+    # "bedrock-cohere" (Cohere Rerank 3.5 via Bedrock — set RERANK_PROVIDER=bedrock-cohere
+    # in .env to switch). Bedrock rerank needs the model enabled in the Bedrock
+    # model-access page; failures fall back to the local cross-encoder so a bad
+    # config doesn't break a long run.
+    rerank_provider: str = "local"
+    bedrock_rerank_model_id: str = "cohere.rerank-v3-5:0"
 
     # Agent
     max_agent_steps: int = 5

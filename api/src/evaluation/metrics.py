@@ -10,54 +10,76 @@ import re
 import string
 
 
+def _article_id(chunk_id: str) -> str:
+    """Map a passage ID `<url>#p<n>` back to its parent article URL.
+
+    Lets IR metrics work uniformly across article-granular and passage-granular
+    chunking: a retrieved passage counts as a hit if its parent URL is in the
+    URL-keyed gold list (MultiHop-RAG's native gold format). Article-level IDs
+    (no `#`) are returned unchanged, so legacy data still scores correctly.
+    """
+    return chunk_id.split("#", 1)[0]
+
+
 def precision_at_k(retrieved: list[str], relevant: list[str], k: int = 5) -> float:
+    """Fraction of top-k retrieved whose parent article is in the relevant set."""
     if k <= 0:
         return 0.0
     top = retrieved[:k]
     if not top:
         return 0.0
     relevant_set = set(relevant)
-    return sum(1 for r in top if r in relevant_set) / k
+    return sum(1 for r in top if _article_id(r) in relevant_set) / k
 
 
 def recall_at_k(retrieved: list[str], relevant: list[str], k: int = 5) -> float:
+    """Fraction of relevant articles covered by ≥1 retrieved passage in top-k."""
     if not relevant:
         return 0.0
-    top = set(retrieved[:k])
-    return sum(1 for r in relevant if r in top) / len(relevant)
+    retrieved_articles = {_article_id(r) for r in retrieved[:k]}
+    return sum(1 for r in relevant if r in retrieved_articles) / len(relevant)
 
 
 def reciprocal_rank_at_k(retrieved: list[str], relevant: list[str], k: int = 10) -> float:
-    """1 / (rank of the first relevant item) within top-k; 0 if none. Mean → MRR@k."""
+    """1 / (rank of the first retrieved passage whose parent is relevant) within top-k.
+    Mean → MRR@k."""
     relevant_set = set(relevant)
     for i, r in enumerate(retrieved[:k], start=1):
-        if r in relevant_set:
+        if _article_id(r) in relevant_set:
             return 1.0 / i
     return 0.0
 
 
 def average_precision_at_k(retrieved: list[str], relevant: list[str], k: int = 10) -> float:
-    """Average precision over the relevant items in top-k; mean → MAP@k.
+    """Average precision over the relevant articles hit in top-k; mean → MAP@k.
 
-    Normalised by min(#relevant, k) — the common IR convention; check this matches
-    the target paper's MAP definition before comparing absolute values.
+    Under passage-granular retrieval against URL-keyed gold, only the FIRST
+    passage from each relevant article counts toward hits — later passages from
+    the same article would otherwise let hits/precision-at-k accumulate past
+    1.0 (a bug observed on the n=41 sanity run that produced MAP@10 = 2.14).
+    Article-level retrieval (no `#` in chunk_ids) is unchanged: each article
+    appears at most once anyway.
     """
     if not relevant:
         return 0.0
     relevant_set = set(relevant)
+    seen_articles: set[str] = set()
     hits = 0
     score = 0.0
     for i, r in enumerate(retrieved[:k], start=1):
-        if r in relevant_set:
+        aid = _article_id(r)
+        if aid in relevant_set and aid not in seen_articles:
+            seen_articles.add(aid)
             hits += 1
             score += hits / i
     return score / min(len(relevant_set), k)
 
 
 def hit_at_k(retrieved: list[str], relevant: list[str], k: int = 10) -> float:
-    """Hit rate: 1.0 if at least one relevant item is in top-k, else 0.0. Mean → Hits@k."""
+    """Hit rate: 1.0 if at least one passage whose parent URL is relevant is in
+    top-k. Mean → Hits@k."""
     relevant_set = set(relevant)
-    return 1.0 if any(r in relevant_set for r in retrieved[:k]) else 0.0
+    return 1.0 if any(_article_id(r) in relevant_set for r in retrieved[:k]) else 0.0
 
 
 def _normalize(s: str) -> str:
@@ -74,12 +96,109 @@ def exact_match(predicted: str, gold: str) -> bool:
     return _normalize(predicted) == _normalize(gold)
 
 
+# MultiHop-RAG marks null queries (corpus contains no answer) with gold
+# "Insufficient information.". Systems trained on instruction-following refuse
+# correctly but rarely use that exact phrase — they say "The provided context
+# does not contain the answer.", "no information", etc. Without this equivalence
+# table, correct refusals score as wrong and null-type accuracy reads 0% even
+# when every system is doing the right thing.
+_REFUSAL_GOLD_NORMS = {"insufficient information"}
+_REFUSAL_PATTERNS = (
+    "does not contain",
+    "cannot be answered",
+    "no information",
+    "insufficient",
+    "cannot determine",
+    "unable to answer",
+    "no answer",
+    "not enough information",
+    "not provided",
+)
+
+
+# Markers used by CoT-style answer prompts (System F-tuned and any future ones).
+# When present, only the text AFTER the LAST marker is scored — prevents
+# instruction-echo from leaking gold-shaped substrings into the prediction.
+# Caught in dissertation work after qid=2252 was scored True because the CoT
+# instruction "must contain the literal entity/yes-no/number" embedded "yes"
+# as a substring, which Nova Lite echoed back into its response.
+_ANSWER_MARKERS = (
+    "final answer:",
+    "final answer is:",
+)
+
+
+def _post_marker(predicted: str) -> str:
+    """If the prediction contains a 'Final answer:' marker, return only what
+    follows the LAST occurrence. Otherwise return the prediction unchanged."""
+    lower = predicted.lower()
+    best = -1
+    best_len = 0
+    for marker in _ANSWER_MARKERS:
+        idx = lower.rfind(marker)
+        if idx > best:
+            best = idx
+            best_len = len(marker)
+    if best >= 0:
+        return predicted[best + best_len:]
+    return predicted
+
+
+# Entity suffixes that gold answers often carry but predictions usually drop —
+# "Everton Football Club" vs "Everton", "Apple Inc." vs "Apple", etc. Stripping
+# the suffix from the normalized gold lets a bare-entity prediction still match.
+_ENTITY_SUFFIXES = (
+    " football club",
+    " fc",
+    " corporation",
+    " corp",
+    " inc",
+    " incorporated",
+    " company",
+    " co",
+    " ltd",
+    " limited",
+    " plc",
+    " gmbh",
+    " sa",
+    " ag",
+)
+
+
+def _strip_entity_suffix(norm: str) -> str:
+    """Strip a trailing known entity suffix from a normalized string."""
+    for suf in _ENTITY_SUFFIXES:
+        if norm.endswith(suf):
+            return norm[: -len(suf)].strip()
+    return norm
+
+
 def contains_match(predicted: str, gold: str) -> bool:
     """Normalized containment: does the gold answer appear inside the prediction?
 
     PRIMARY correctness metric — the MultiHop-RAG paper (Tang & Yang 2024) scores
     a short factoid gold (yes/no, entity, before/after) by presence in the response.
+
+    Three layers of robustness on top of plain substring containment:
+      (1) Post-marker extraction — if the prediction has a 'Final answer:' marker,
+          we score only what FOLLOWS the last marker. Stops CoT prompts from
+          poisoning scoring by echoing gold-shaped tokens in their instructions
+          (the qid=2252 'yes-no/number' instruction-echo false-positive).
+      (2) Refusal equivalence — gold 'Insufficient information.' matches any
+          standard refusal phrasing in the prediction.
+      (3) Entity-suffix stripping — gold 'Everton Football Club' matches a
+          prediction containing only 'Everton' (suffixes 'football club', 'inc',
+          'corp', 'ltd', etc. are dropped before the final containment check).
     """
     if not predicted or not gold:
         return False
-    return _normalize(gold) in _normalize(predicted)
+    p_text = _post_marker(predicted)
+    p, g = _normalize(p_text), _normalize(gold)
+    if g in _REFUSAL_GOLD_NORMS:
+        return any(pat in p for pat in _REFUSAL_PATTERNS)
+    if g in p:
+        return True
+    g_stripped = _strip_entity_suffix(g)
+    if g_stripped and g_stripped != g and g_stripped in p:
+        return True
+    return False

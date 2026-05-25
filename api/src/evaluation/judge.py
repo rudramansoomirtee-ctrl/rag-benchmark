@@ -52,7 +52,13 @@ def judge(question: str, gold: str, answer: str | None) -> tuple[str, float, flo
 
     model = settings.judge_model or settings.litellm_model
     extra = {"aws_region_name": settings.aws_region} if model.startswith("bedrock/") else {}
-    client = instructor.from_litellm(completion)
+    # Use JSON mode for Nova-class judges (Nova doesn't reliably emit tool calls
+    # for instructor's schema-forcing); TOOLS mode for everything else.
+    client = (
+        instructor.from_litellm(completion, mode=instructor.Mode.JSON)
+        if "nova" in model.lower()
+        else instructor.from_litellm(completion)
+    )
     verdict, raw = client.chat.completions.create_with_completion(
         model=model,
         response_model=JudgeVerdict,

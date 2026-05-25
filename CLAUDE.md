@@ -56,10 +56,17 @@ notebooks/analysis.py           # Marimo notebook for Chapter 4 figures
 
 ## The systems
 
-Lineup: **A** (naive), **B** (agentic loop), **F** (query decomposition).
-Faithfulness (HHEM) is computed for every run, not by a system — the old passive
-Systems C/D were folded into that metric. System E (vendored OpenRag) was removed;
-see top-of-file note.
+Lineup: **A** (naive), **B** (agentic single-tool loop), **F** (query decomposition),
+**G** (multi-tool agentic retrieval). Faithfulness (HHEM) is computed for every
+run, not by a system — the old passive Systems C/D were folded into that metric.
+System E (vendored OpenRag) was removed; see top-of-file note.
+
+G is the deliberate response to Ferrazzi et al. (2026, ACL Industry Track), who
+benchmarked single-tool agentic RAG and listed "multi-tool agents" as a gap.
+B reformulates the query but always calls the same hybrid retriever; G picks
+between `retrieve_semantic` / `retrieve_bm25` / `retrieve_filtered(source=..., category=...)`
+per step using a typed `instructor` decision. Same LangGraph state machine,
+same per-instance step budget (G1/G3/G5 mirror B1/B3/B5).
 
 All implement `systems/base.py:System` protocol → `answer(query: str) -> RunResult`.
 

@@ -71,12 +71,41 @@ def bulk_index(docs: list[dict]) -> None:
     bulk(get_client(), actions)
 
 
-def knn_search(query_vector: list[float], top_k: int | None = None) -> list[dict]:
+def _filter_clauses(filters: dict | None) -> list[dict]:
+    """Build OpenSearch term clauses from a {field: value} filter dict.
+
+    Supports metadata fields with a `.keyword` sub-mapping (source/category/author/
+    published_at/title — see the index mapping). Empty/None values are skipped so
+    callers can pass partially-populated filter dicts without ceremony.
+    """
+    if not filters:
+        return []
+    clauses = []
+    for field, value in filters.items():
+        if value in (None, "", []):
+            continue
+        if isinstance(value, list):
+            clauses.append({"terms": {f"metadata.{field}.keyword": value}})
+        else:
+            clauses.append({"term": {f"metadata.{field}.keyword": value}})
+    return clauses
+
+
+def knn_search(
+    query_vector: list[float],
+    top_k: int | None = None,
+    filters: dict | None = None,
+) -> list[dict]:
     """Dense vector search. Returns hits with text + chunk_id + score."""
     top_k = top_k or settings.top_k
+    knn_q = {"knn": {"embedding": {"vector": query_vector, "k": top_k}}}
+    fc = _filter_clauses(filters)
+    query = (
+        {"bool": {"must": [knn_q], "filter": fc}} if fc else knn_q
+    )
     body = {
         "size": top_k,
-        "query": {"knn": {"embedding": {"vector": query_vector, "k": top_k}}},
+        "query": query,
         "_source": ["chunk_id", "text", "dataset", "metadata"],
     }
     resp = get_client().search(index=settings.opensearch_index, body=body)
@@ -86,12 +115,19 @@ def knn_search(query_vector: list[float], top_k: int | None = None) -> list[dict
     ]
 
 
-def bm25_search(query_text: str, top_k: int | None = None) -> list[dict]:
+def bm25_search(
+    query_text: str,
+    top_k: int | None = None,
+    filters: dict | None = None,
+) -> list[dict]:
     """Lexical BM25 search over the chunk text field."""
     top_k = top_k or settings.top_k
+    match_q = {"match": {"text": query_text}}
+    fc = _filter_clauses(filters)
+    query = {"bool": {"must": [match_q], "filter": fc}} if fc else match_q
     body = {
         "size": top_k,
-        "query": {"match": {"text": query_text}},
+        "query": query,
         "_source": ["chunk_id", "text", "dataset", "metadata"],
     }
     resp = get_client().search(index=settings.opensearch_index, body=body)
@@ -106,6 +142,7 @@ def hybrid_search(
     query_vector: list[float],
     top_k: int | None = None,
     rrf_k: int = 60,
+    filters: dict | None = None,
 ) -> list[dict]:
     """BM25 + dense kNN combined client-side with Reciprocal Rank Fusion.
 
@@ -117,8 +154,8 @@ def hybrid_search(
     top_k = top_k or settings.top_k
     pool = max(top_k * 4, settings.retrieval_pool)
 
-    bm25 = bm25_search(query_text, top_k=pool)
-    knn = knn_search(query_vector, top_k=pool)
+    bm25 = bm25_search(query_text, top_k=pool, filters=filters)
+    knn = knn_search(query_vector, top_k=pool, filters=filters)
 
     fused: dict[str, float] = {}
     chunks: dict[str, dict] = {}
