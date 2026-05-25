@@ -57,16 +57,19 @@ notebooks/analysis.py           # Marimo notebook for Chapter 4 figures
 ## The systems
 
 Lineup: **A** (naive), **B** (agentic single-tool loop), **F** (query decomposition),
-**G** (multi-tool agentic retrieval). Faithfulness (HHEM) is computed for every
-run, not by a system — the old passive Systems C/D were folded into that metric.
-System E (vendored OpenRag) was removed; see top-of-file note.
+**F-tuned** (F + CoT answer prompt + few-shot decomposer + source-aware retrieval +
+single-final-rerank). Faithfulness (HHEM) is computed for every run, not by a system
+— the old passive Systems C/D were folded into that metric. System E (vendored
+OpenRag) was removed; see top-of-file note.
 
-G is the deliberate response to Ferrazzi et al. (2026, ACL Industry Track), who
-benchmarked single-tool agentic RAG and listed "multi-tool agents" as a gap.
-B reformulates the query but always calls the same hybrid retriever; G picks
-between `retrieve_semantic` / `retrieve_bm25` / `retrieve_filtered(source=..., category=...)`
-per step using a typed `instructor` decision. Same LangGraph state machine,
-same per-instance step budget (G1/G3/G5 mirror B1/B3/B5).
+**System G was also removed** after consistently underperforming A/F across Haiku,
+Qwen3 and Nova Lite (e.g. Qwen3 passages exp14: G=0.444 vs A/F=0.889). G was the
+deliberate multi-tool-agentic comparator to Ferrazzi et al. (2026)'s single-tool gap,
+but its design (multiple per-step retrieval tools + accumulation across steps) lost
+chunks at the answer-step budget cap and the typed decision schema was fragile
+under non-Anthropic LLMs. Historical G runs remain in the DB (exp11/12/14) as
+evidence; the *finding* that multi-tool agentic doesn't pay off here is part of
+the dissertation's narrative.
 
 All implement `systems/base.py:System` protocol → `answer(query: str) -> RunResult`.
 

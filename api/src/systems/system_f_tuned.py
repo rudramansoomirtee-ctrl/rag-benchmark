@@ -112,11 +112,11 @@ COT_ANSWER_SYSTEM_PROMPT = (
 
 
 MAX_SUBQUESTIONS = 4
-F_TUNED_TOP_K = 10  # context budget for the answer call (was settings.top_k=5)
-PER_QUERY_TOP_K = 10  # candidates per retrieve() call (was settings.top_k=5)
+F_TUNED_TOP_K = 10        # context budget for the answer call (was settings.top_k=5)
+PER_QUERY_TOP_K = 10      # candidates returned by each retrieve() call after per-query rerank
 ORIGINAL_QUERY_RRF_WEIGHT = 2.0
-SOURCE_FILTERED_RRF_WEIGHT = 1.5  # filtered retrievals weighted slightly more than unscoped sub-question hits
-RESERVED_PER_SOURCE = 2  # guaranteed slots in final context per source named in the query — stops Fortune+TheVerge from drowning out the explicitly-named TechCrunch chunks (qid=2252)
+SOURCE_FILTERED_RRF_WEIGHT = 1.5
+RESERVED_PER_SOURCE = 2   # guaranteed slots in final context per source named in the query — stops Fortune+TheVerge from drowning out the explicitly-named TechCrunch chunks (qid=2252)
 
 
 @lru_cache(maxsize=1)
@@ -201,8 +201,9 @@ def _rrf_fuse_weighted(
 ) -> list[dict]:
     """Weighted RRF — each ranked list contributes 1/(rrf_k + rank) × its weight.
 
-    Original query is weighted 2× sub-questions so its direct hits don't get
-    drowned out by noisy sub-question expansions.
+    Original query gets a 2× weight so its direct hits don't get drowned out by
+    noisier sub-question expansions; source-filtered retrievals get 1.5× so they
+    survive the fusion alongside the original.
     """
     scores: dict[str, float] = {}
     chunks: dict[str, dict] = {}
@@ -219,17 +220,27 @@ class SystemFTuned:
     name = "F-tuned"
 
     def answer(self, query: str) -> RunResult:
+        """Per-query rerank → weighted RRF over per-query top-K → reserved-slot
+        source coverage.
+
+          1. Decompose into 2-4 sub-questions (or [] if single-hop).
+          2. Detect publisher names in original+subs.
+          3. For each of (original, each sub-question, each source-filter), run
+             retrieve() = hybrid+RRF+rerank → per-query top-10.
+          4. Weighted RRF over those per-query lists (original 2×, source-
+             filtered 1.5×, sub-questions 1.0×).
+          5. Reserve up to RESERVED_PER_SOURCE chunks per detected source from
+             that source's filtered list.
+          6. Fill the remaining slots up to F_TUNED_TOP_K from the fused list.
+
+        This was empirically the best F-tuned variant tested (exp19: 7/8 = 0.875
+        under Nova Lite, n=9). An alternative "single-final-rerank over the
+        union of pre-rerank pools" (v3) was tested in exp22 and scored 7/9 =
+        0.778 — same retrieval ceiling on hard queries, no clear win.
+        """
         t0 = time.time()
         subs, tin, tout, cost = _decompose(query)
 
-        # Fan-out construction:
-        #  - The original query → one unscoped retrieve() (weight 2.0).
-        #  - Each sub-question → one unscoped retrieve() (weight 1.0).
-        #  - For every source name found in (original OR any sub-question) →
-        #    one retrieve_filtered() scoped to that source (weight 1.5).
-        # Sources are detected via substring match against the corpus's known
-        # publisher list; if no sources are named, the system reduces to the
-        # original four-lever F-tuned configuration.
         ranked_lists: list[list[dict]] = []
         weights: list[float] = []
 
@@ -240,11 +251,8 @@ class SystemFTuned:
             ranked_lists.append(retrieve(s, top_k=PER_QUERY_TOP_K))
             weights.append(1.0)
 
-        # Source-scoped fan-out — for each publisher mentioned in the query,
-        # run a retrieve_filtered() and KEEP the per-source list separately so
-        # we can reserve top-N slots in the final context for that source
-        # (otherwise Fortune+TheVerge chunks out-rank explicitly-named TechCrunch
-        # chunks in fusion — observed on qid=2252).
+        # Source-scoped fan-out — one retrieve_filtered() per detected publisher,
+        # kept in source_lists so the reservation step can guarantee coverage.
         all_text = query + " " + " ".join(subs)
         source_lists: dict[str, list[dict]] = {}
         for src in _detect_sources(all_text):
@@ -259,9 +267,7 @@ class SystemFTuned:
 
         fused = _rrf_fuse_weighted(ranked_lists, weights)
 
-        # Build the final context with guaranteed per-source coverage.
-        # 1. Reserve up to RESERVED_PER_SOURCE chunks from each source-filtered list.
-        # 2. Fill remaining slots from the RRF-fused list (skipping anything already reserved).
+        # Reserved-per-source slots (top hits from each source-filtered list).
         reserved: list[dict] = []
         seen_ids: set[str] = set()
         for src, hits in source_lists.items():
@@ -275,6 +281,7 @@ class SystemFTuned:
                 if taken >= RESERVED_PER_SOURCE:
                     break
 
+        # Fill from RRF-fused list (skip anything already reserved).
         filler: list[dict] = []
         remaining = F_TUNED_TOP_K - len(reserved)
         for h in fused:
@@ -295,9 +302,6 @@ class SystemFTuned:
             ]
         )
 
-        # Persist the chunks actually fed to the LLM (reserved + filler) — so
-        # P@k/R@k against gold reflects what the system actually used, not the
-        # raw RRF list whose tail never reaches the answer.
         return RunResult(
             answer=gen["content"],
             retrieved_chunk_ids=[h["chunk_id"] for h in final_chunks],

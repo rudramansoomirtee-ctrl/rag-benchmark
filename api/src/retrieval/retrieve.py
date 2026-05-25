@@ -2,22 +2,18 @@
 
 Systems A/B/F call `retrieve()` so the retrieval pipeline is constant across
 the controlled-orchestration comparison; the systems differ only in answer
-generation.
-
-System G is the deliberate exception: it picks between several retrieval *tools*
-on each step (semantic-only, BM25-only, metadata-filtered hybrid) so that the
-agentic comparison covers both orchestration *and* retrieval-strategy choice —
-the gap Ferrazzi et al. (2026) explicitly call out in their study of single-tool
-agentic RAG.
+generation. F-tuned uses `retrieve_pool()` (no rerank) to collect candidates
+from multiple sub-queries before running ONE final rerank over the union,
+plus `retrieve_filtered()` to scope retrieval by metadata (e.g. source).
 
 Pipeline per call:
   1. Embed the query (BAAI/llm-embedder)
   2. Hybrid BM25 + dense kNN, fused with RRF, top `retrieval_pool` candidates
-  3. Cross-encoder rerank the pool down to `top_k`
+  3. Cross-encoder rerank the pool down to `top_k` (skipped by `retrieve_pool`)
 """
 from src.config import settings
 from src.retrieval.embeddings import embed_one
-from src.retrieval.opensearch_client import bm25_search, hybrid_search, knn_search
+from src.retrieval.opensearch_client import hybrid_search
 from src.retrieval.reranker import rerank
 
 
@@ -26,23 +22,6 @@ def retrieve(query: str, top_k: int | None = None) -> list[dict]:
     top_k = top_k or settings.top_k
     qvec = embed_one(query)
     pool = hybrid_search(query, qvec, top_k=settings.retrieval_pool)
-    return rerank(query, pool, top_k=top_k)
-
-
-def retrieve_semantic(query: str, top_k: int | None = None) -> list[dict]:
-    """Dense-only retrieval (skips BM25) + rerank. System G tool."""
-    top_k = top_k or settings.top_k
-    qvec = embed_one(query)
-    pool = knn_search(qvec, top_k=settings.retrieval_pool)
-    return rerank(query, pool, top_k=top_k)
-
-
-def retrieve_bm25(query: str, top_k: int | None = None) -> list[dict]:
-    """BM25-only retrieval (skips dense) + rerank. System G tool — best on
-    named-entity / exact-string queries where dense embeddings paraphrase too aggressively.
-    """
-    top_k = top_k or settings.top_k
-    pool = bm25_search(query, top_k=settings.retrieval_pool)
     return rerank(query, pool, top_k=top_k)
 
 
@@ -64,6 +43,8 @@ def retrieve_filtered(
         query, qvec, top_k=settings.retrieval_pool, filters=filters
     )
     return rerank(query, pool, top_k=top_k)
+
+
 
 
 def format_context(hits: list[dict]) -> str:

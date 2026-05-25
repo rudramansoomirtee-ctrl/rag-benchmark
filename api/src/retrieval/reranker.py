@@ -87,7 +87,13 @@ def _rerank_bedrock_cohere(
 
 
 def rerank(query: str, candidates: list[dict], top_k: int | None = None) -> list[dict]:
-    """Re-score (query, candidate.text) pairs and return top_k.
+    """Re-score (query, candidate.text) pairs with the cross-encoder, return
+    the top_k by rerank score.
+
+    Always reranks when candidates exist — the previous "skip if len ≤ top_k"
+    early-exit silently dropped the cross-encoder signal when callers wanted
+    the SORTED output (e.g. F-tuned's single-final-rerank refactor that
+    reranks the dedup'd union of multiple sub-query pools).
 
     Selects provider via `settings.rerank_provider`; on Bedrock failure, falls
     back to local cross-encoder and logs a warning.
@@ -95,8 +101,6 @@ def rerank(query: str, candidates: list[dict], top_k: int | None = None) -> list
     top_k = top_k or settings.top_k
     if not candidates:
         return []
-    if len(candidates) <= top_k:
-        return candidates
 
     if settings.rerank_provider == "bedrock-cohere":
         try:
