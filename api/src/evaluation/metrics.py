@@ -8,6 +8,7 @@ factoids (yes/no, entity, before/after) scored by presence in the response.
 """
 import re
 import string
+from collections import Counter
 
 
 def _article_id(chunk_id: str) -> str:
@@ -202,3 +203,48 @@ def contains_match(predicted: str, gold: str) -> bool:
     if g_stripped and g_stripped != g and g_stripped in p:
         return True
     return False
+
+
+# SQuAD-style F1 drops articles before token overlap, matching the standard
+# QA-F1 convention (Rajpurkar et al. 2016) so the metric is comparable to the
+# answer-F1 reported by Ammann et al. (2025) rather than a bespoke variant.
+_ARTICLES = {"a", "an", "the"}
+
+
+def _f1_tokens(s: str) -> list[str]:
+    """Normalized, article-stripped token list for token-overlap F1."""
+    return [t for t in _normalize(s).split() if t not in _ARTICLES]
+
+
+def token_f1(predicted: str, gold: str) -> float:
+    """SQuAD-style token-overlap F1 between prediction and gold (0..1).
+
+    Complementary SECONDARY metric to `contains_match`: where containment is a
+    binary "is the gold factoid present", token F1 is a graded lexical-overlap
+    score, and the two are *meant* to diverge (that divergence is the metric
+    audit, RQ4/O6). Two layers are shared with the primary metric so the columns
+    stay comparable per question type:
+      (1) Post-marker extraction — score only text after the last 'Final answer:'
+          so CoT answers (System F-tuned) are scored on the answer, not the chain.
+      (2) Refusal equivalence — gold 'Insufficient information.' scores 1.0 against
+          any standard refusal phrasing, so null-type F1 is meaningful rather than
+          uniformly ~0. Entity-suffix stripping is intentionally NOT applied —
+          token overlap already partially credits 'Everton' vs 'Everton FC'.
+    """
+    if not predicted or not gold:
+        return 0.0
+    p_text = _post_marker(predicted)
+    if _normalize(gold) in _REFUSAL_GOLD_NORMS:
+        p_norm = _normalize(p_text)
+        return 1.0 if any(pat in p_norm for pat in _REFUSAL_PATTERNS) else 0.0
+    pred_toks = _f1_tokens(p_text)
+    gold_toks = _f1_tokens(gold)
+    if not pred_toks or not gold_toks:
+        return float(pred_toks == gold_toks)
+    common = Counter(pred_toks) & Counter(gold_toks)
+    num_same = sum(common.values())
+    if num_same == 0:
+        return 0.0
+    precision = num_same / len(pred_toks)
+    recall = num_same / len(gold_toks)
+    return 2 * precision * recall / (precision + recall)

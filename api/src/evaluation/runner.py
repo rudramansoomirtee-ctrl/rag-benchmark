@@ -14,13 +14,13 @@ throttles mid-eval.
 import logging
 from typing import Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 
 from src.config import settings
-from src.db.models import Experiment, Query, Run
+from src.db.models import Chunk, Experiment, Query, Run
 from src.db.session import get_session
 from src.evaluation.metrics import exact_match, contains_match
 from src.systems.base import System, RunResult
@@ -30,6 +30,53 @@ from src.systems.system_f import SystemF
 from src.systems.system_f_tuned import SystemFTuned
 
 logger = logging.getLogger("rag.runner")
+
+
+def _git_sha() -> str | None:
+    """Code version for provenance. Prefers an explicit GIT_SHA env (the only
+    reliable source inside the api container, which mounts src/ but not .git),
+    falling back to `git rev-parse` when the runner is invoked on a host checkout."""
+    import os
+    import subprocess
+
+    env = os.environ.get("GIT_SHA")
+    if env:
+        return env.strip()
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, cwd=os.path.dirname(__file__), timeout=5,
+        )
+        return out.stdout.strip() or None
+    except Exception:
+        return None
+
+
+def _corpus_fingerprint(session, datasets: list[str]) -> dict:
+    """Per-dataset chunk census so the experiment record proves which corpus
+    build it ran against. `granularity` is 'passage' (all `<url>#p<i>`),
+    'article' (none), or 'mixed' — the last flags the additive-ingest hazard
+    (C8) where an article index was never wiped before a passage re-ingest."""
+    fp: dict = {}
+    for ds in datasets:
+        total = session.scalar(
+            select(func.count(Chunk.id)).where(Chunk.dataset == ds)
+        ) or 0
+        passages = session.scalar(
+            select(func.count(Chunk.id)).where(
+                Chunk.dataset == ds, Chunk.external_id.like("%#p%")
+            )
+        ) or 0
+        if total == 0:
+            granularity = "empty"
+        elif passages == total:
+            granularity = "passage"
+        elif passages == 0:
+            granularity = "article"
+        else:
+            granularity = "mixed"
+        fp[ds] = {"n_chunks": total, "n_passage_chunks": passages, "granularity": granularity}
+    return fp
 
 
 # Final lineup: A (naive), B (iterative agent, default 5-step budget), F
@@ -115,6 +162,15 @@ def run_experiment(
                 },
                 "model": settings.litellm_model,
                 "embedding_model": settings.embedding_model,
+                # Provenance — lets the DB prove environment constancy across the
+                # 4×3 matrix (C2). Without these, two experiments are not known
+                # to share a pipeline even when they share a model string.
+                "git_sha": _git_sha(),
+                "reranker_model": settings.reranker_model,
+                "rerank_provider": settings.rerank_provider,
+                "retrieval_pool": settings.retrieval_pool,
+                "hhem_threshold": settings.hhem_threshold,
+                "corpus": _corpus_fingerprint(session, datasets),
             },
         )
         session.add(exp)

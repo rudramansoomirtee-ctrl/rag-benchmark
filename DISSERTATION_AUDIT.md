@@ -67,10 +67,13 @@ Verify the Ammann quote against the PDF before verbatim use (CLAUDE.md already w
 ### C — Code changes
 
 **Before the final runs:**
-- [ ] **C2** Record provenance in `experiments.config_json` (`evaluation/runner.py`):
-  git SHA, `reranker_model`, `rerank_provider`, `retrieval_pool`, `hhem_threshold`,
-  chunk granularity / corpus fingerprint (n_chunks). Without this the DB cannot
-  prove environment constancy across the 4×3 matrix.
+- [x] **C2** *(done, commit pending)* Provenance now recorded in
+  `experiments.config_json` (`evaluation/runner.py`): `git_sha` (via `_git_sha()`
+  — reads `GIT_SHA` env, falls back to `git rev-parse`), `reranker_model`,
+  `rerank_provider`, `retrieval_pool`, `hhem_threshold`, and a per-dataset
+  `corpus` fingerprint (`_corpus_fingerprint()` → n_chunks, n_passage_chunks,
+  granularity). **Action for final runs:** export `GIT_SHA=$(git rev-parse HEAD)`
+  when invoking `run-experiment` inside the container (no `.git` is mounted there).
 - [ ] **C3** *(optional — decide)* Persist System B's accumulated `all_retrieved_ids`
   (currently dropped at the end of `system_b.py:answer`) if an "evidence ever seen"
   ceiling for B is wanted; final-context-only is what's stored today.
@@ -82,12 +85,19 @@ Verify the Ammann quote against the PDF before verbatim use (CLAUDE.md already w
 - [ ] **C8** Verify index granularity purity: no mixed `<url>` and `<url>#p<i>`
   chunk IDs for multihop (ingest is additive; `index_corpus` indexes ALL chunks).
   If mixed → wipe Postgres chunks + OpenSearch index, re-ingest, re-index.
+  *Now auto-flagged*: every new experiment's `config_json.corpus[ds].granularity`
+  reads `"mixed"` when both granularities coexist (C2 fingerprint) — but acting on
+  the flag (the wipe/re-ingest) is still manual.
 
 **Post-hoc safe (answers stored; recomputable over historical runs):**
-- [ ] **C1** Implement token-level F1 in `evaluation/metrics.py` (SQuAD-style, over
-  post-marker answer text), surface in `compute-metrics` + `metrics-by-type`.
-  Decide: persisted `metrics` column (migration 0003) vs notebook-only.
-  Required by A2/O4/A4 slides; enables comparison with Ammann et al.'s answer-F1.
+- [x] **C1** *(done, commit pending)* `evaluation/metrics.py:token_f1` — SQuAD-style
+  token-overlap F1 over post-marker text, with refusal-equivalence so null-type is
+  meaningful (entity-suffix stripping intentionally omitted to keep it a clean
+  lexical metric). Persisted as `metrics.avg_token_f1` (migration `0003_token_f1`),
+  surfaced in `compute-metrics`, `metrics-by-type`, and the `/metrics` + `/by-type`
+  API routes. Recomputable over historical experiments via `compute-metrics`.
+  **Action for the user:** run `alembic upgrade head` before the next `compute-metrics`.
+  Unblocks slide wording W3.
 - [ ] **C4** Latency aggregation (avg/p50/p95 per system) — notebook minimum,
   optional `metrics` column.
 - [ ] **C5** `rescore` CLI command to re-score historical runs under the current
@@ -123,7 +133,9 @@ Verify the Ammann quote against the PDF before verbatim use (CLAUDE.md already w
   benchmark harness with a shared system interface" (only S2/B uses LangGraph).
 - [ ] **W2** "via LiteLLM proxy" → "via the LiteLLM SDK" (no proxy container, by
   documented decision).
-- [ ] **W3** Keep "Token F1" on slides only if C1 is implemented; else say "exact match".
+- [x] **W3** *(unblocked)* Token F1 now exists (C1), so the slides may keep it —
+  but only report numbers once `alembic upgrade head` + `compute-metrics` have
+  populated `avg_token_f1`. Until then the column is NULL.
 - [ ] **W4** Objective 3: add the **null** question type; fix "stratified …
   stratified" and "a … sample sets".
 - [ ] **W5** "4 × 3 experimental sample sets" → "12 runs over one fixed stratified
@@ -149,10 +161,15 @@ Verify the Ammann quote against the PDF before verbatim use (CLAUDE.md already w
 
 ---
 
-## 6. Bottom line (as of audit date)
+## 6. Bottom line
+
+Done so far: **C1** (token F1, code + migration + surfacing) and **C2**
+(experiment provenance + corpus fingerprint). Both need `alembic upgrade head`
+in the user's environment before they populate.
 
 Claim confidently now: A1, A3 (modulo W2), O1, O5, RQ1, RQ2-cost.
-Claim only after action items: A2/O3 (C1 + P1/P2), A4/O6 (C1 + N3/N4),
-RQ3 (P1/P2 + N1 + W6), RQ4 (N1/N2 + P1).
-Factually wrong as currently worded: Token F1 (3 slides), "single LangGraph
-framework", "LiteLLM proxy".
+Claim only after action items: A2/O3 (P1/P2 — token F1 code now exists),
+A4/O6 (N3/N4), RQ3 (P1/P2 + N1 + W6), RQ4 (N1/N2 + P1).
+Still factually wrong as currently worded: "single LangGraph framework" (W1),
+"LiteLLM proxy" (W2). Token F1 is no longer a phantom claim — code exists;
+populate the numbers before citing them.

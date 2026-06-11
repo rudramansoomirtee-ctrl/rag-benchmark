@@ -95,6 +95,7 @@ class Metric(Base):
     avg_trajectory_length: Mapped[float | None] = mapped_column(Float)
     accuracy: Mapped[float | None] = mapped_column(Float)           # primary: contains_match
     accuracy_exact: Mapped[float | None] = mapped_column(Float)     # secondary: normalized exact-match
+    avg_token_f1: Mapped[float | None] = mapped_column(Float)       # secondary: mean SQuAD-style token F1
     crag_score: Mapped[float | None] = mapped_column(Float)         # secondary: mean CRAG truthfulness
     total_cost_usd: Mapped[float | None] = mapped_column(Numeric(10, 4))
     cost_per_correct: Mapped[float | None] = mapped_column(Numeric(10, 6))

@@ -217,6 +217,7 @@ Index settings: `knn.algo_param.ef_search = 100`.
 | `recall_at_5`            | mean over runs of `recall_at_k(retrieved, relevant, 5)`      |
 | `accuracy`               | `sum(is_correct) / n` (primary: `contains_match`)            |
 | `accuracy_exact`         | mean `exact_match` over runs (secondary, stricter)           |
+| `avg_token_f1`           | mean SQuAD-style `token_f1` over runs (secondary, lexical-overlap; comparable to Ammann et al. answer-F1) |
 | `crag_score`             | mean CRAG truthfulness over judged runs (secondary, LLM-judge)|
 | `avg_faithfulness`       | mean HHEM over runs where score is not null                  |
 | `pct_flagged`            | fraction where `flagged = True`                              |
@@ -262,8 +263,8 @@ runs       (id, experiment_id→experiments, system, query_id→queries,
             is_correct, llm_judge_label, phoenix_trace_id, created_at)
 metrics    (id, experiment_id, system, dataset, n_queries,
             precision_at_5, recall_at_5, avg_faithfulness, pct_flagged,
-            avg_trajectory_length, accuracy, accuracy_exact, crag_score,
-            total_cost_usd, cost_per_correct, computed_at)
+            avg_trajectory_length, accuracy, accuracy_exact, avg_token_f1,
+            crag_score, total_cost_usd, cost_per_correct, computed_at)
 ```
 
 Key constraints (load-bearing):
