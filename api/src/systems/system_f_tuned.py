@@ -302,9 +302,16 @@ class SystemFTuned:
             ]
         )
 
+        # Evidence ever seen = union of every per-query / source-filtered pool,
+        # before reserved+filler trimmed it to the answering context.
+        all_seen = list(dict.fromkeys(
+            h["chunk_id"] for lst in ranked_lists for h in lst
+        ))
+
         return RunResult(
             answer=gen["content"],
             retrieved_chunk_ids=[h["chunk_id"] for h in final_chunks],
+            all_retrieved_chunk_ids=all_seen,
             hhem_score=None,
             flagged=None,
             n_steps=len(ranked_lists),

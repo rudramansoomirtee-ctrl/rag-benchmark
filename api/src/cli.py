@@ -147,7 +147,7 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             grouped[(run.system, q.dataset)].append((run, q))
 
         table = Table(title=f"Metrics for experiment {experiment}")
-        for col in ["System", "Dataset", "N", "P@5", "R@5", "Accuracy", "Exact", "TokenF1", "CRAG", "AvgHHEM", "Cost", "$/correct"]:
+        for col in ["System", "Dataset", "N", "Fail%", "P@5", "R@5", "Accuracy", "Exact", "TokenF1", "CRAG", "AvgHHEM", "Cost", "$/correct"]:
             table.add_column(col)
 
         for (system, dataset), pairs in grouped.items():
@@ -156,6 +156,10 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             rec = sum(recall_at_k(r.retrieved_chunk_ids, q.relevant_chunk_ids, settings.top_k) for r, q in pairs) / n
             correct = sum(1 for r, _ in pairs if r.is_correct)
             acc = correct / n
+            # Crashed runs persist a NULL-answer stub; policy is "a crash is wrong"
+            # (they stay in the accuracy denominator). Surface the rate so it's visible.
+            n_failed = sum(1 for r, _ in pairs if r.answer is None)
+            pct_failed = n_failed / n if n else None
             exact = sum(exact_match(r.answer or "", q.ground_truth or "") for r, q in pairs) / n
             tf1 = sum(token_f1(r.answer or "", q.ground_truth or "") for r, q in pairs) / n
             judged = [r.llm_judge_label for r, _ in pairs if r.llm_judge_label]
@@ -187,6 +191,7 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
                 avg_faithfulness=avg_hhem,
                 pct_flagged=pct_flagged,
                 avg_trajectory_length=avg_steps,
+                pct_failed=pct_failed,
                 accuracy=acc,
                 accuracy_exact=exact,
                 avg_token_f1=tf1,
@@ -202,6 +207,7 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
 
             table.add_row(
                 system, dataset, str(n),
+                f"{pct_failed:.1%}" if pct_failed else "0%",
                 f"{p:.3f}", f"{rec:.3f}", f"{acc:.3f}",
                 f"{exact:.3f}",
                 f"{tf1:.3f}",

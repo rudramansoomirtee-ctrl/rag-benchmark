@@ -214,10 +214,14 @@ class SystemB:
 
         answer = final.get("final_answer") or "No answer."
         final_chunk_ids = [h["chunk_id"] for h in final.get("retrieved_chunks", [])]
+        # Evidence ever seen across all iterations (deduped, order-preserving) —
+        # distinct from final_chunk_ids, which is only the answering context.
+        all_seen = list(dict.fromkeys(final.get("all_retrieved_ids", [])))
 
         return RunResult(
             answer=answer,
             retrieved_chunk_ids=final_chunk_ids,
+            all_retrieved_chunk_ids=all_seen,
             hhem_score=None,
             flagged=None,
             n_steps=final["n_steps"],

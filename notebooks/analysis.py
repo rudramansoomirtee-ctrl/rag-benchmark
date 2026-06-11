@@ -184,7 +184,9 @@ def __(engine, pd):
         """
         SELECT r.experiment_id, r.system, r.answer, r.llm_judge_label,
                r.cost_usd, r.latency_ms, r.n_steps,
-               r.retrieved_chunk_ids, q.ground_truth, q.relevant_chunk_ids,
+               r.retrieved_chunk_ids,
+               COALESCE(r.all_retrieved_chunk_ids, r.retrieved_chunk_ids) AS all_retrieved_chunk_ids,
+               q.ground_truth, q.relevant_chunk_ids,
                lower(split_part(q.metadata->>'question_type', '_query', 1)) AS question_type
         FROM runs r
         JOIN queries q ON q.id = r.query_id
@@ -216,8 +218,10 @@ def __(contains_match, covered, exact_match, runs_raw, token_f1):
     runs_m["m_crag_bin"] = runs_m["llm_judge_label"].map(
         {"perfect": 1, "acceptable": 1, "missing": 0, "incorrect": 0}
     )
+    # Coverage is scored against evidence EVER seen (all_retrieved_chunk_ids), so
+    # System B's iterative retrievals count, not just its final answering context.
     runs_m["covered"] = [
-        covered(rc, rel) for rc, rel in zip(runs_m.retrieved_chunk_ids, runs_m.relevant_chunk_ids)
+        covered(ar, rel) for ar, rel in zip(runs_m.all_retrieved_chunk_ids, runs_m.relevant_chunk_ids)
     ]
     runs_m
     return (runs_m,)

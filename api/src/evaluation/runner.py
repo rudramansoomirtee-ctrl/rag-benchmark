@@ -52,6 +52,18 @@ def _git_sha() -> str | None:
         return None
 
 
+def _litellm_version() -> str | None:
+    """Pin-of-record for cost reproducibility: litellm's pricing map (which produces
+    every run's cost_usd) changes between versions, and requirements allow a range.
+    Recording the installed version per experiment makes costs attributable without
+    needing a hard requirements pin."""
+    try:
+        from importlib.metadata import version
+        return version("litellm")
+    except Exception:
+        return None
+
+
 def _corpus_fingerprint(session, datasets: list[str]) -> dict:
     """Per-dataset chunk census so the experiment record proves which corpus
     build it ran against. `granularity` is 'passage' (all `<url>#p<i>`),
@@ -166,6 +178,7 @@ def run_experiment(
                 # 4×3 matrix (C2). Without these, two experiments are not known
                 # to share a pipeline even when they share a model string.
                 "git_sha": _git_sha(),
+                "litellm_version": _litellm_version(),
                 "reranker_model": settings.reranker_model,
                 "rerank_provider": settings.rerank_provider,
                 "retrieval_pool": settings.retrieval_pool,
@@ -260,13 +273,18 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
     is_correct = (
         contains_match(result.answer, q.ground_truth) if q.ground_truth else None
     )
+    # Faithfulness scores the FINAL answering context, not the full evidence set.
     hhem, flagged = _faithfulness(result.retrieved_chunk_ids, result.answer)
+    # Systems that retrieve once leave all_retrieved_chunk_ids None → fall back to
+    # the final context (for them the two are identical).
+    all_retrieved = result.all_retrieved_chunk_ids or result.retrieved_chunk_ids
 
     stmt = insert(Run).values(
         experiment_id=exp_id,
         system=sys_name,
         query_id=q.id,
         retrieved_chunk_ids=result.retrieved_chunk_ids,
+        all_retrieved_chunk_ids=all_retrieved,
         answer=result.answer,
         hhem_score=hhem,
         flagged=flagged,

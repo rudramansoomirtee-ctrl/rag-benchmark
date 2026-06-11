@@ -125,6 +125,7 @@ def metrics(exp_id: int):
                 "crag_score": m.crag_score,
                 "avg_faithfulness": m.avg_faithfulness,
                 "pct_flagged": m.pct_flagged,
+                "pct_failed": m.pct_failed,
                 "avg_trajectory_length": m.avg_trajectory_length,
                 "total_cost_usd": float(m.total_cost_usd) if m.total_cost_usd is not None else None,
                 "cost_per_correct": float(m.cost_per_correct) if m.cost_per_correct is not None else None,

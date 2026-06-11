@@ -59,7 +59,8 @@ class Run(Base):
     experiment_id: Mapped[int] = mapped_column(ForeignKey("experiments.id", ondelete="CASCADE"))
     system: Mapped[str] = mapped_column(Text, nullable=False)
     query_id: Mapped[int] = mapped_column(ForeignKey("queries.id"))
-    retrieved_chunk_ids: Mapped[list] = mapped_column(JSONB, nullable=False)
+    retrieved_chunk_ids: Mapped[list] = mapped_column(JSONB, nullable=False)  # final answering context
+    all_retrieved_chunk_ids: Mapped[list | None] = mapped_column(JSONB)       # evidence ever seen (retrieval-ceiling)
     answer: Mapped[str | None] = mapped_column(Text)
     hhem_score: Mapped[float | None] = mapped_column(Float)
     flagged: Mapped[bool | None] = mapped_column(Boolean)
@@ -93,6 +94,7 @@ class Metric(Base):
     avg_faithfulness: Mapped[float | None] = mapped_column(Float)
     pct_flagged: Mapped[float | None] = mapped_column(Float)
     avg_trajectory_length: Mapped[float | None] = mapped_column(Float)
+    pct_failed: Mapped[float | None] = mapped_column(Float)         # fraction of runs that errored (answer IS NULL); these count as wrong in `accuracy`
     accuracy: Mapped[float | None] = mapped_column(Float)           # primary: contains_match
     accuracy_exact: Mapped[float | None] = mapped_column(Float)     # secondary: normalized exact-match
     avg_token_f1: Mapped[float | None] = mapped_column(Float)       # secondary: mean SQuAD-style token F1

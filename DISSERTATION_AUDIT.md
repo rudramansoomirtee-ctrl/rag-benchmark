@@ -74,14 +74,23 @@ Verify the Ammann quote against the PDF before verbatim use (CLAUDE.md already w
   `corpus` fingerprint (`_corpus_fingerprint()` → n_chunks, n_passage_chunks,
   granularity). **Action for final runs:** export `GIT_SHA=$(git rev-parse HEAD)`
   when invoking `run-experiment` inside the container (no `.git` is mounted there).
-- [ ] **C3** *(optional — decide)* Persist System B's accumulated `all_retrieved_ids`
-  (currently dropped at the end of `system_b.py:answer`) if an "evidence ever seen"
-  ceiling for B is wanted; final-context-only is what's stored today.
-- [ ] **C6** *(decision)* Accuracy denominator includes `is_correct IS NULL` stub rows
-  (CLAUDE.md known gap #4) and stubs carry zero cost. Either fix the denominator or
-  adopt + state a "failures count as wrong" policy (defensible for predictability).
-- [ ] **C7** Exact-pin `litellm` in `api/requirements.txt` for the final phase —
-  its pricing map changes between versions and feeds `cost_usd` (RQ2).
+- [x] **C3** *(done — user: "C3 yes")* `RunResult.all_retrieved_chunk_ids` + the
+  `runs.all_retrieved_chunk_ids` column (migration `0004`) now persist evidence
+  ever seen: System B sets the deduped union across iterations, F-tuned the union
+  of all per-query/source pools; A/F fall back to the final context in the runner
+  (identical for them). N3 coverage uses it — verified it flips B's
+  found-early-then-reformulated-away case from a false retrieval-failure to a
+  correctly-attributed agent failure.
+- [x] **C6** *(done — user: "(a)")* Policy is **a crash is a wrong answer**: failed
+  (`answer IS NULL`) rows stay in the accuracy denominator, and the rate is now
+  **visible** via `metrics.pct_failed` (migration `0004`) + a `Fail%` column in
+  `compute-metrics` (no longer hidden). State the policy in the methodology.
+- [x] **C7** *(resolved differently — user: "idk" the version)* Instead of a hard
+  requirements pin (can't guess the installed version), each experiment now records
+  `config_json.litellm_version` at runtime, so every cost number is attributable.
+  **For the final runs:** build the image once and run all 12 on it (don't rebuild
+  mid-matrix) → costs are internally consistent regardless. A hard pin is optional;
+  read the version off any experiment if you ever want one.
 - [ ] **C8** Verify index granularity purity: no mixed `<url>` and `<url>#p<i>`
   chunk IDs for multihop (ingest is additive; `index_corpus` indexes ALL chunks).
   If mixed → wipe Postgres chunks + OpenSearch index, re-ingest, re-index.
@@ -98,11 +107,13 @@ Verify the Ammann quote against the PDF before verbatim use (CLAUDE.md already w
   API routes. Recomputable over historical experiments via `compute-metrics`.
   **Action for the user:** run `alembic upgrade head` before the next `compute-metrics`.
   Unblocks slide wording W3.
-- [ ] **C4** Latency aggregation (avg/p50/p95 per system) — notebook minimum,
-  optional `metrics` column.
-- [ ] **C5** `rescore` CLI command to re-score historical runs under the current
-  `contains_match` (metric changed mid-project; stored `is_correct` is frozen at
-  run-time code) — or decide headline numbers cite fresh runs only.
+- [x] **C4** *(done in notebook)* Latency avg/p50/p95 per system in N2
+  (`variance_tbl`). A persisted `metrics` column was deemed unnecessary (notebook
+  covers it; avoids schema bloat).
+- [x] **C5** *(skipped — user: "fresh runs only")* No `rescore` command. Headline
+  numbers will come from the fresh 4×3 matrix, so the mid-project metric drift on
+  historical `is_correct` is moot. (N4's agreement analysis recomputes metrics from
+  stored answers anyway, so it's unaffected.)
 
 ### N — Analysis (in `notebooks/analysis.py`)
 All five added as marimo cells after the existing per-type cell, plus a shared
@@ -184,22 +195,26 @@ data; the live versions need a populated Postgres. *(All done, commit pending.)*
 
 ## 6. Bottom line
 
-Done so far: **C1** (token F1), **C2** (provenance + corpus fingerprint), and the
-full **N-series** (N1 rank stability, N2 variance/CIs, N3 retrieval ceiling +
-failure attribution, N4 metric agreement, N5 Pareto frontier) in the notebook.
-A4/O6 now have real implementation behind them; RQ3/RQ4 have their analysis code.
+**The code side of the audit is complete.** Done: **C1** (token F1), **C2**
+(provenance + corpus fingerprint), **C3** (evidence-ever-seen for the ceiling),
+**C4** (latency dispersion, in N2), **C6** (crash=wrong policy + visible
+`pct_failed`), **C7** (runtime `litellm_version` capture), **D1/D2** (doc drift),
+and the full **N-series** (N1–N5). **Skipped by decision:** C5 (fresh runs only).
+Migrations `0003` (token F1) and `0004` (ceiling + failure) are ready to apply.
 
-Remaining to *claim* the gated items is now mostly **running**, not building:
-- A2/O3, RQ3, RQ4 → run the 4×3 matrix on a frozen pipeline (P1/P2), then the
-  N1/N2 cells populate. Set `GIT_SHA=$(git rev-parse HEAD)` per run (C2).
-- A4/O6 → `alembic upgrade head` + `compute-metrics` (token F1 column) and a
-  `judge` pass (CRAG column), then the N3/N4 cells render over real data.
-- A3/O5 → already claimable per-experiment; N5 frontier + the matrix complete it.
+Everything still open is **yours**, not buildable here:
+- **Run** (your env): `alembic upgrade head` → `compute-metrics` (token F1,
+  pct_failed) + `judge` (CRAG) → the frozen 4×3 matrix, each run prefixed with
+  `GIT_SHA=$(git rev-parse HEAD)`, on a single image build. Then every N-cell
+  populates and A2/O3, A4/O6, RQ3/RQ4 become claimable.
+- **Slides** (your deck): W1 "single LangGraph framework" → "benchmark harness";
+  W2 "LiteLLM proxy" → "LiteLLM SDK"; W3 keep "Token F1" (now real); plus the
+  W4–W9 wording/citation items.
 
-Claim confidently now: A1, A3 (modulo W2), O1, O5, RQ1, RQ2-cost.
-Still factually wrong as currently worded (slide-only edits): "single LangGraph
-framework" (W1), "LiteLLM proxy" (W2).
+Claim confidently now: A1, A3, O1, O5, RQ1, RQ2-cost.
 
-Verification status: all added Python compiles; `token_f1` and every N-cell's
-math + pandas logic were unit-tested on synthetic data. Nothing here has been run
-against the live Postgres/OpenSearch/Bedrock stack — that's the user's environment.
+Verification status: all added Python compiles; `token_f1`, the C3 union/fallback,
+C6 `pct_failed`, C7 capture, and every N-cell's math + pandas logic were unit-tested
+on synthetic data (which caught two real bugs pre-commit: the N1 diagonal crash and
+the B found-then-dropped misattribution C3 fixes). Nothing has run against the live
+Postgres/OpenSearch/Bedrock stack — that's your environment.

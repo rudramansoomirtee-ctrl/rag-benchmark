@@ -74,7 +74,10 @@ the dissertation's narrative.
 All implement `systems/base.py:System` protocol → `answer(query: str) -> RunResult`.
 
 `RunResult` fields: `answer, retrieved_chunk_ids, hhem_score, flagged,
-n_steps, tokens_in, tokens_out, latency_ms, cost_usd, phoenix_trace_id`.
+n_steps, tokens_in, tokens_out, latency_ms, cost_usd, phoenix_trace_id,
+all_retrieved_chunk_ids`. `retrieved_chunk_ids` is the final answering context;
+`all_retrieved_chunk_ids` is the union of everything retrieved across the run
+(all B iterations / all F-tuned fan-out), for the retrieval-ceiling analysis.
 
 ### Shared (every system uses the same underlying calls)
 
@@ -223,6 +226,7 @@ Index settings: `knn.algo_param.ef_search = 100`.
 | `avg_faithfulness`       | mean HHEM over runs where score is not null                  |
 | `pct_flagged`            | fraction where `flagged = True`                              |
 | `avg_trajectory_length`  | mean `n_steps`                                               |
+| `pct_failed`             | fraction of runs that errored (`answer IS NULL`); these count as wrong in `accuracy` (deliberate "crash = wrong" policy) |
 | `total_cost_usd`         | sum of `cost_usd`                                            |
 | `cost_per_correct`       | `total_cost_usd / sum(is_correct)`                           |
 
@@ -259,12 +263,12 @@ queries    (id, dataset, external_id, split, task_type, query_text,
             ground_truth, relevant_chunk_ids JSONB, metadata JSONB)
 chunks     (id, dataset, external_id, text, metadata JSONB)
 runs       (id, experiment_id→experiments, system, query_id→queries,
-            retrieved_chunk_ids JSONB, answer, hhem_score, flagged,
+            retrieved_chunk_ids JSONB, all_retrieved_chunk_ids JSONB, answer, hhem_score, flagged,
             n_steps, tokens_in, tokens_out, latency_ms, cost_usd,
             is_correct, llm_judge_label, phoenix_trace_id, created_at)
 metrics    (id, experiment_id, system, dataset, n_queries,
             precision_at_5, recall_at_5, avg_faithfulness, pct_flagged,
-            avg_trajectory_length, accuracy, accuracy_exact, avg_token_f1,
+            avg_trajectory_length, pct_failed, accuracy, accuracy_exact, avg_token_f1,
             crag_score, total_cost_usd, cost_per_correct, computed_at)
 ```
 
@@ -316,7 +320,7 @@ hhem_threshold          = 0.10                   # empirical for HHEM-2.1-open o
 | 1 | `systems/system_b.py`                  | ~~`cost_usd` reads 0 if instructor raw lacks response_cost~~ **fixed**: falls back to `litellm.cost_per_token` from usage | resolved (needs model in litellm pricing map) |
 | 2 | All systems                            | `phoenix_trace_id` always `None`                           | No SQL→Phoenix link from `runs`   |
 | 3 | `evaluation/runner.py`                 | Uses `contains_match` for MultiHop (= paper's containment metric) | OK as primary; `exact_match`/CRAG are stricter secondaries |
-| 4 | `cli.py:compute_metrics`               | Accuracy denominator includes `is_correct IS NULL` rows    | Underreports accuracy             |
+| 4 | `cli.py:compute_metrics`               | Accuracy denominator includes failed (`answer IS NULL`) rows — **deliberate**: a crash is a wrong answer. Now surfaced via the `metrics.pct_failed` column rather than hidden | resolved (policy + visible failure rate) |
 | 5 | `datasets/multihop.py` + indexer       | MultiHop now ingests **256-token passages by default** (`DEFAULT_PASSAGE_TOKENS=256`; pass `passage_tokens=None` to revert to article/URL). Gold stays URL-keyed; `metrics.py:_article_id` maps passages→parent URL when scoring | mostly resolved; a *literal* Tang & Yang Table 5 replication still needs a fact→passage gold mapping, not just passage chunking |
 
 Fix only when explicitly asked. When asked, fix only the requested item.
