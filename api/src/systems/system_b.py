@@ -17,11 +17,19 @@ a trivial single-job schema, robust across providers. Cost is roughly ~2× the
 old design per step but makes the orchestration story portable across model
 classes.
 
+Evidence ACCUMULATES across iterations (IRCoT-style union): route, reformulate
+and answer all operate on the RRF-fused merge of every iteration's ranked
+list, capped at FUSED_ANSWER_TOP_K — the same fusion + budget System F applies
+to its sub-question lists. Without this, a chunk found at step 1 is invisible
+by step 3 and the agent re-hunts evidence it already holds. A one-step run
+fuses a single list, so B degenerates to System A's exact context.
+
 Retrieval shares the hybrid+rerank pipeline used by A/F so the comparison
 isolates agent behaviour from retrieval quality.
 
-The persisted `retrieved_chunk_ids` represents the chunks present at the
-agent's final iteration — i.e. the evidence it actually used to answer.
+The persisted `retrieved_chunk_ids` is the fused answering context (what the
+final generate() saw); `all_retrieved_chunk_ids` is the raw union of every
+iteration's hits.
 """
 import logging
 import time
@@ -31,7 +39,12 @@ from typing_extensions import TypedDict
 
 from src.config import settings
 from src.llm.client import generate, make_instructor_client
-from src.retrieval.retrieve import format_context, retrieve
+from src.retrieval.retrieve import (
+    FUSED_ANSWER_TOP_K,
+    format_context,
+    retrieve,
+    rrf_fuse,
+)
 from src.systems.base import RunResult
 from src.systems.schemas import AgentAction, RouteDecision
 from src.systems.system_a import ANSWER_SYSTEM_PROMPT
@@ -45,11 +58,12 @@ ROUTE_SYSTEM_PROMPT = (
     "\n"
     "Each step you receive:\n"
     "- The ORIGINAL multi-hop question.\n"
-    "- The CURRENT retrieved context (top-k chunks for the latest query).\n"
+    "- The EVIDENCE GATHERED SO FAR: the best-ranked chunks fused across every "
+    "search you have run so far, not just the latest one.\n"
     "- How many steps you have used out of the budget.\n"
     "\n"
     "Choose exactly ONE action:\n"
-    "  - ANSWER: current context contains every fact needed.\n"
+    "  - ANSWER: the gathered evidence contains every fact needed.\n"
     "  - REFORMULATE: at least one fact is still missing.\n"
     "\n"
     "Hard rules:\n"
@@ -71,8 +85,8 @@ REFORMULATE_SYSTEM_PROMPT = (
 class AgentState(TypedDict):
     original_query: str
     current_query: str
-    retrieved_chunks: list[dict]
-    all_retrieved_ids: list[str]
+    iteration_hits: list[list[dict]]
+    answer_chunks: list[dict]
     n_steps: int
     max_agent_steps: int
     final_answer: str | None
@@ -83,8 +97,7 @@ class AgentState(TypedDict):
 
 def _retrieve_node(state: AgentState) -> AgentState:
     hits = retrieve(state["current_query"], top_k=settings.top_k)
-    state["retrieved_chunks"] = hits
-    state["all_retrieved_ids"].extend(h["chunk_id"] for h in hits)
+    state["iteration_hits"].append(hits)
     state["n_steps"] += 1
     return state
 
@@ -95,12 +108,16 @@ def _route_node(state: AgentState) -> AgentState:
     Then execute the chosen route in a follow-up `generate()` call so the
     content (reformulated query or final answer) comes from a focused, free-text
     response rather than a conditional field on a multi-field schema.
+
+    Both calls see the same fused working memory the answer would use — judging
+    sufficiency on only the latest batch would re-request facts already held.
     """
     client = make_instructor_client()
-    context = format_context(state["retrieved_chunks"])
+    working = rrf_fuse(state["iteration_hits"])[:FUSED_ANSWER_TOP_K]
+    context = format_context(working)
     user_prompt = (
         f"Original question: {state['original_query']}\n\n"
-        f"Current context:\n{context}\n\n"
+        f"Evidence gathered so far:\n{context}\n\n"
         f"Steps taken: {state['n_steps']}/{state['max_agent_steps']}"
     )
 
@@ -123,6 +140,7 @@ def _route_node(state: AgentState) -> AgentState:
             {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {state['original_query']}"},
         ])
         state["final_answer"] = synth["content"] or "No answer produced."
+        state["answer_chunks"] = working
         state["tokens_in"] += synth["tokens_in"]
         state["tokens_out"] += synth["tokens_out"]
         state["cost_usd"] += synth["cost_usd"]
@@ -133,7 +151,7 @@ def _route_node(state: AgentState) -> AgentState:
             {"role": "system", "content": REFORMULATE_SYSTEM_PROMPT},
             {"role": "user", "content": (
                 f"Original question: {state['original_query']}\n\n"
-                f"Current context (insufficient):\n{context}\n\n"
+                f"Evidence gathered so far (insufficient):\n{context}\n\n"
                 "Write the new search query:"
             )},
         ])
@@ -201,8 +219,8 @@ class SystemB:
         initial: AgentState = {
             "original_query": query,
             "current_query": query,
-            "retrieved_chunks": [],
-            "all_retrieved_ids": [],
+            "iteration_hits": [],
+            "answer_chunks": [],
             "n_steps": 0,
             "max_agent_steps": self.max_agent_steps,
             "final_answer": None,
@@ -213,11 +231,19 @@ class SystemB:
         final = self._graph.invoke(initial)
 
         answer = final.get("final_answer") or "No answer."
-        final_chunk_ids = [h["chunk_id"] for h in final.get("retrieved_chunks", [])]
+        iteration_hits = final.get("iteration_hits", [])
+        answer_chunks = (
+            final.get("answer_chunks")
+            or rrf_fuse(iteration_hits)[:FUSED_ANSWER_TOP_K]
+        )
+        all_seen = list(dict.fromkeys(
+            h["chunk_id"] for hits in iteration_hits for h in hits
+        ))
 
         return RunResult(
             answer=answer,
-            retrieved_chunk_ids=final_chunk_ids,
+            retrieved_chunk_ids=[h["chunk_id"] for h in answer_chunks],
+            all_retrieved_chunk_ids=all_seen,
             hhem_score=None,
             flagged=None,
             n_steps=final["n_steps"],

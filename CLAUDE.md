@@ -57,8 +57,9 @@ notebooks/analysis.py           # Marimo notebook for Chapter 4 figures
 ## The systems
 
 Lineup: **A** (naive), **B** (agentic single-tool loop), **F** (query decomposition),
-**F-tuned** (F + CoT answer prompt + few-shot decomposer + source-aware retrieval +
-single-final-rerank). Faithfulness (HHEM) is computed for every run, not by a system
+**F-tuned** (F + top-10 answer budget + per-query top-10 pools + weighted RRF +
+source-aware retrieval + CoT answer prompt; the few-shot decomposer is now shared
+with F). Faithfulness (HHEM) is computed for every run, not by a system
 — the old passive Systems C/D were folded into that metric. System E (vendored
 OpenRag) was removed; see top-of-file note.
 
@@ -74,16 +75,20 @@ the dissertation's narrative.
 All implement `systems/base.py:System` protocol → `answer(query: str) -> RunResult`.
 
 `RunResult` fields: `answer, retrieved_chunk_ids, hhem_score, flagged,
-n_steps, tokens_in, tokens_out, latency_ms, cost_usd, phoenix_trace_id`.
+n_steps, tokens_in, tokens_out, latency_ms, cost_usd, phoenix_trace_id,
+all_retrieved_chunk_ids`. `retrieved_chunk_ids` is the final answering context;
+`all_retrieved_chunk_ids` is the union of everything retrieved across the run
+(all B iterations / all F-tuned fan-out), for the retrieval-ceiling analysis.
 
 ### Shared (every system uses the same underlying calls)
 
 | Concern          | Module / Function                                            |
 |------------------|--------------------------------------------------------------|
-| Query embedding  | `retrieval/embeddings.py:embed_one` — `BAAI/llm-embedder`, 768-dim, lru_cached |
-| Vector search    | `retrieval/opensearch_client.py:knn_search` — HNSW kNN over `rag-chunks` index |
+| Query embedding  | `retrieval/embeddings.py:embed_one` — `BAAI/llm-embedder`, 768-dim (the *model* is lru_cached via `get_model()`; per-query embeds are not) |
+| Retrieval        | `retrieval/retrieve.py:retrieve` — hybrid BM25 + dense kNN, RRF-fused (`opensearch_client.py:hybrid_search`), then cross-encoder rerank to `top_k`. A/B/F/F-tuned all share this; `knn_search`/`bm25_search` are its building blocks |
+| Multi-list fusion | `retrieval/retrieve.py:rrf_fuse` — client-side RRF over per-query ranked lists; B fuses its iteration lists, F its sub-question lists. Answer context = fused top `FUSED_ANSWER_TOP_K = 10` for both (one-list fusion is the identity ⇒ A's single retrieve also returns 10) |
 | LLM call         | `llm/client.py:generate` — LiteLLM, `temperature=0`, returns content + tokens + cost |
-| Top-k            | `settings.top_k = 5`                                          |
+| Top-k            | `settings.top_k = 10` per retrieve() call (A answers over all 10; B/F fuse their iteration/sub-question lists to top-10 via `FUSED_ANSWER_TOP_K`) |
 | Trace capture    | `tracing.py:init_tracing` — auto-instruments LangChain + LiteLLM via openinference |
 
 ### Per-system spec (A and B; F has its own section below)
@@ -92,31 +97,37 @@ n_steps, tokens_in, tokens_out, latency_ms, cost_usd, phoenix_trace_id`.
 |-----------------------|------------|--------------------------------|
 | Pattern               | naive      | agent loop (LangGraph)         |
 | Retrieve              | once       | each loop iter                 |
-| LLM calls per query   | 1          | N × decide + (final synthesis) |
-| Reformulates query    | no         | yes (typed via `instructor`)   |
-| Max steps             | n/a        | per-instance (B1/B3/B5); default `settings.max_agent_steps = 5` |
+| LLM calls per query   | 1          | per iter: 1 route + 1 execute (reformulate **or** answer) |
+| Reformulates query    | no         | yes (free-text, after a typed route via `instructor`) |
+| Max steps             | n/a        | per-instance; default `settings.max_agent_steps = 5` (B1/B3/B5 sweep removed) |
 | Cost accuracy         | ✅         | ✅ usage tokens + response_cost, falls back to litellm pricing |
 
 **System B agent state machine** (`systems/system_b.py`):
 ```
-RETRIEVE → DECIDE ──(reformulate)──┐
-              │                    │
-           (answer)                │
-              ▼                    │
-             END  ◀────────────────┘
+RETRIEVE → ROUTE ──(reformulate)──┐
+              │                   │
+           (answer)               │
+              ▼                   │
+             END  ◀───────────────┘
 ```
-- Agent decision is a typed Pydantic model `systems/schemas.py:AgentDecision`
-  enforcing `action ∈ {reformulate, answer}` via `instructor` → parse failures
-  cannot happen.
+- Each iteration is **two LLM calls**: a tiny one-field `systems/schemas.py:RouteDecision`
+  (`action ∈ {reformulate, answer}` via `instructor`, so it can't parse-fail), then a
+  free-text `generate()` that writes either the reformulated query or the final answer.
+  The split makes B robust on Nova/Qwen3, which choked on the old single multi-field
+  schema (`AgentDecision`, still defined but no longer used by B).
 - Termination: `action == ANSWER` **or** `n_steps >= max_agent_steps`. The budget
   is **per-instance** (`SystemB(max_agent_steps=…)`, carried in `AgentState`),
-  defaulting to `settings.max_agent_steps`. The decide prompt instructs ANSWER on
+  defaulting to `settings.max_agent_steps`. The route prompt instructs ANSWER on
   the final step, so `k=1` degenerates to one retrieve→answer (≈ A) rather than
   forcing "No answer".
-- **Iteration sweep:** `B1`/`B3`/`B5` in `runner.py:SYSTEM_REGISTRY` are System B at
-  budgets 1/3/5, run side-by-side in one experiment (`--systems B1,B3,B5`) →
-  `compute-metrics` gives a row each = a cost-vs-accuracy curve; `B1` is the
-  no-iteration ablation.
+- **Iteration budget** is per-instance. The B1/B3/B5 sweep (budgets 1/3/5 as separate
+  registry entries) was **removed** — `SYSTEM_REGISTRY` is now just `A,B,F,F-tuned`;
+  historical sweep runs remain in the DB.
+- **Evidence accumulates across iterations** (IRCoT-style union): route, reformulate
+  and answer all operate on `rrf_fuse(iteration_hits)[:FUSED_ANSWER_TOP_K]` — the
+  fused working memory, not just the latest batch. `retrieved_chunk_ids` persists
+  that fused answering context; `all_retrieved_chunk_ids` the raw union. Before
+  this, a chunk found at step 1 was invisible by step 3.
 
 **Faithfulness — HHEM on every run** (`evaluation/runner.py:_faithfulness`, not a system):
 - Computed for **every** system's run (A/B/F) ⇒ faithfulness is a column for all.
@@ -140,14 +151,19 @@ queries — the regression is visible.
 
 ### System F (query decomposition) — `systems/system_f.py`
 
-Multi-hop decomposition baseline. One LLM call (`instructor` → `Decomposition`)
+Multi-hop decomposition baseline. One LLM call (`instructor` → `Decomposition`,
+few-shot `DECOMPOSE_FEWSHOT_PROMPT` — shared with F-tuned, which imports it)
 splits the query into 2-4 single-hop sub-questions; F retrieves for the original
 + each sub-question over the **same** `retrieve()` as A/B, RRF-fuses the lists
-(deduped by chunk_id), and answers once with the fused top-`top_k` context.
+(`rrf_fuse`, deduped by chunk_id), and answers once with the fused top-8
+(`FUSED_ANSWER_TOP_K`) context. `retrieved_chunk_ids` = that top-8 answering
+context (what HHEM scores against); `all_retrieved_chunk_ids` = the full fused list.
 - Retriever held constant ⇒ F-vs-A isolates the *decomposition* effect (vs E,
   which changes the retriever). Distinct from B: parallel decompose+fuse, not an
   iterative reformulation loop.
-- Single-hop ⇒ empty decomposition ⇒ F reduces to A's retrieval.
+- Single-hop ⇒ empty decomposition ⇒ F reduces to A's retrieval and context.
+- Decompose parse failure (Nova/Qwen JSON + trailing prose) degrades gracefully
+  to no sub-questions instead of a stub row — same policy as F-tuned.
 - `n_steps` = number of retrievals (1 + #sub-questions); tokens/cost sum the
   decompose + answer calls (properly tracked, unlike B).
 - **Cite Ammann, Golde & Akbik (2025)**, *Question Decomposition for RAG* (ACL 2025
@@ -217,10 +233,12 @@ Index settings: `knn.algo_param.ef_search = 100`.
 | `recall_at_5`            | mean over runs of `recall_at_k(retrieved, relevant, 5)`      |
 | `accuracy`               | `sum(is_correct) / n` (primary: `contains_match`)            |
 | `accuracy_exact`         | mean `exact_match` over runs (secondary, stricter)           |
+| `avg_token_f1`           | mean SQuAD-style `token_f1` over runs (secondary, lexical-overlap; comparable to Ammann et al. answer-F1) |
 | `crag_score`             | mean CRAG truthfulness over judged runs (secondary, LLM-judge)|
 | `avg_faithfulness`       | mean HHEM over runs where score is not null                  |
 | `pct_flagged`            | fraction where `flagged = True`                              |
 | `avg_trajectory_length`  | mean `n_steps`                                               |
+| `pct_failed`             | fraction of runs that errored (`answer IS NULL`); these count as wrong in `accuracy` (deliberate "crash = wrong" policy) |
 | `total_cost_usd`         | sum of `cost_usd`                                            |
 | `cost_per_correct`       | `total_cost_usd / sum(is_correct)`                           |
 
@@ -257,13 +275,13 @@ queries    (id, dataset, external_id, split, task_type, query_text,
             ground_truth, relevant_chunk_ids JSONB, metadata JSONB)
 chunks     (id, dataset, external_id, text, metadata JSONB)
 runs       (id, experiment_id→experiments, system, query_id→queries,
-            retrieved_chunk_ids JSONB, answer, hhem_score, flagged,
+            retrieved_chunk_ids JSONB, all_retrieved_chunk_ids JSONB, answer, hhem_score, flagged,
             n_steps, tokens_in, tokens_out, latency_ms, cost_usd,
             is_correct, llm_judge_label, phoenix_trace_id, created_at)
 metrics    (id, experiment_id, system, dataset, n_queries,
             precision_at_5, recall_at_5, avg_faithfulness, pct_flagged,
-            avg_trajectory_length, accuracy, accuracy_exact, crag_score,
-            total_cost_usd, cost_per_correct, computed_at)
+            avg_trajectory_length, pct_failed, accuracy, accuracy_exact, avg_token_f1,
+            crag_score, total_cost_usd, cost_per_correct, computed_at)
 ```
 
 Key constraints (load-bearing):
@@ -280,15 +298,18 @@ All settings via pydantic-settings, env-overridable. Defaults shown:
 database_url            = "postgresql+psycopg://rag:ragbench@postgres:5432/ragbench"
 opensearch_url          = "http://opensearch:9200"
 phoenix_collector_endpoint = "http://phoenix:6006"
-litellm_model           = "bedrock/anthropic.claude-haiku-4-5-20251001-v1:0"
+litellm_model           = "bedrock/amazon.nova-lite-v1:0"   # Haiku 4.5 etc. via LITELLM_MODEL env
 judge_model             = None    # LLM-as-judge model; falls back to litellm_model. Lets you pair cheap generation + strong judging
 aws_region              = "eu-west-2"
 embedding_model         = "BAAI/llm-embedder"   # 768-dim
 embedding_dim           = 768
 opensearch_index        = "rag-chunks"
 top_k                   = 5
+retrieval_pool          = 20                     # hybrid first-stage pool size before rerank
+reranker_model          = "BAAI/bge-reranker-v2-m3"
+rerank_provider         = "local"                # "local" cross-encoder | "bedrock-cohere"
 max_agent_steps         = 5
-hhem_threshold          = 0.5                    # overridden post-calibration
+hhem_threshold          = 0.10                   # empirical for HHEM-2.1-open on news; overridden post-calibration
 ```
 
 ## Conventions
@@ -311,8 +332,8 @@ hhem_threshold          = 0.5                    # overridden post-calibration
 | 1 | `systems/system_b.py`                  | ~~`cost_usd` reads 0 if instructor raw lacks response_cost~~ **fixed**: falls back to `litellm.cost_per_token` from usage | resolved (needs model in litellm pricing map) |
 | 2 | All systems                            | `phoenix_trace_id` always `None`                           | No SQL→Phoenix link from `runs`   |
 | 3 | `evaluation/runner.py`                 | Uses `contains_match` for MultiHop (= paper's containment metric) | OK as primary; `exact_match`/CRAG are stricter secondaries |
-| 4 | `cli.py:compute_metrics`               | Accuracy denominator includes `is_correct IS NULL` rows    | Underreports accuracy             |
-| 5 | `datasets/multihop.py` + indexer       | MultiHop indexed at **article/URL** granularity, not 256-token passages | `retrieval-eval` numbers read higher than & aren't comparable to Tang & Yang Table 5; literal replication needs passage-level chunking + fact→passage gold |
+| 4 | `cli.py:compute_metrics`               | Accuracy denominator includes failed (`answer IS NULL`) rows — **deliberate**: a crash is a wrong answer. Now surfaced via the `metrics.pct_failed` column rather than hidden | resolved (policy + visible failure rate) |
+| 5 | `datasets/multihop.py` + indexer       | MultiHop now ingests **256-token passages by default** (`DEFAULT_PASSAGE_TOKENS=256`; pass `passage_tokens=None` to revert to article/URL). Gold stays URL-keyed; `metrics.py:_article_id` maps passages→parent URL when scoring | mostly resolved; a *literal* Tang & Yang Table 5 replication still needs a fact→passage gold mapping, not just passage chunking |
 
 Fix only when explicitly asked. When asked, fix only the requested item.
 
@@ -348,8 +369,7 @@ docker compose run --rm api python -m src.cli index-corpus multihop
 docker compose run --rm api python -m src.cli calibrate
 docker compose run --rm api python -m src.cli run-experiment --name X --systems A,B,F --datasets multihop
 docker compose run --rm api python -m src.cli run-experiment --name smoke --systems A --datasets multihop --limit 20  # quick smoke test (first 20)
-docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,B,F --datasets multihop --sample 500 --seed 42  # defensible stratified subset
-docker compose run --rm api python -m src.cli run-experiment --name ksweep --systems B1,B3,B5 --datasets multihop  # B iteration sweep
+docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,B,F,F-tuned --datasets multihop --sample 500 --seed 42  # defensible stratified subset
 docker compose run --rm api python -m src.cli compute-metrics --experiment N
 docker compose run --rm api python -m src.cli judge --experiment N            # CRAG LLM-as-judge (post-hoc, resumable)
 docker compose run --rm api python -m src.cli metrics-by-type --experiment N  # accuracy by question type
@@ -369,6 +389,13 @@ Experiment detail surfaces config/selection, the full metrics row (incl.
 ### Phoenix at `http://localhost:6006`
 
 Auto-populated. No code touches Phoenix directly except `tracing.py:init_tracing`.
+
+### Dissertation claim audit — `DISSERTATION_AUDIT.md`
+
+`DISSERTATION_AUDIT.md` (repo root) maps the dissertation's Gaps/RQs/Aims/Objectives
+to implementation status and holds the action register (C/N/P/W/D items). Read it
+before any dissertation-claim, slide, or final-run work and update statuses in
+place — do **not** re-audit the codebase from scratch.
 
 ## Environment setup notes
 

@@ -48,7 +48,7 @@ docker compose up -d api
 ```
 
 Open:
-- **Testing console** at <http://localhost:8000/> — three-tab UI (Ask, Data, Experiments) for trying systems A–D, ingesting datasets, and browsing experiment results.
+- **Testing console** at <http://localhost:8000/> — three-tab UI (Ask, Data, Experiments) for trying systems A/B/F/F-tuned, ingesting datasets, and browsing experiment results.
 - **Phoenix** at <http://localhost:6006> — trace tree per query.
 - **FastAPI docs** at <http://localhost:8000/docs> — raw API surface.
 
@@ -94,10 +94,11 @@ marimo edit notebooks/analysis.py
 ## System F — query decomposition (multi-hop)
 
 System F decomposes a multi-hop question into 2–4 single-hop sub-questions (one
-`instructor`-typed LLM call), retrieves for the original + each sub-question over
-the **same** hybrid+rerank pipeline as A/B, RRF-fuses the results, and answers
-once. Because the retriever is held constant, F-vs-A isolates the *decomposition*
-effect. It's the decomposition rung of the comparison study, distinct from B's
+few-shot `instructor`-typed LLM call), retrieves for the original + each
+sub-question over the **same** hybrid+rerank pipeline as A/B, RRF-fuses the
+results, and answers once over the fused top-8 (`FUSED_ANSWER_TOP_K`, shared
+with B's iteration fusion). Because the retriever is held constant, F-vs-A
+isolates the *decomposition* effect. It's the decomposition rung of the comparison study, distinct from B's
 iterative reformulation loop. No new deps, no keys (Bedrock only).
 
 System F deliberately mirrors **Ammann, Golde & Akbik (2025)**, *Question
@@ -126,16 +127,18 @@ docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
 
 ## Ablations & secondary metrics
 
-**System B iteration sweep (k = 1, 3, 5).** `B1`/`B3`/`B5` are System B at agent-step
-budgets 1/3/5, registered as distinct systems so they run side-by-side in one
-experiment. `compute-metrics` then yields one row each → a cost-vs-accuracy curve
-instead of a single point. `B1` (one retrieve→answer step, no reformulation) is the
-ablation: if accuracy is flat from B1 to B5, iteration buys nothing — itself a
-finding.
+**Systems A / B / F / F-tuned.** The lineup is A (naive), B (iterative agent,
+default 5-step budget, evidence RRF-fused across iterations), F (decomposition +
+RRF), and F-tuned (F + top-10 budget + weighted RRF + source-aware retrieval +
+CoT answer prompt). A/B/F hold the retriever, generator and fused answer budget
+constant so the comparison isolates *orchestration*; F-tuned stacks accuracy
+levers on top of F. (The earlier B1/B3/B5 iteration sweep and the
+multi-tool System G were both **removed** after the runs showed no gain over the
+baselines; historical runs remain in the DB.)
 
 ```bash
 docker compose run --rm api python -m src.cli run-experiment \
-  --name b-ksweep --systems B1,B3,B5 --datasets multihop
+  --name lineup --systems A,B,F,F-tuned --datasets multihop
 docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
 ```
 
@@ -219,9 +222,9 @@ reaches ≈ Hits@10 0.747 / Hits@4 0.663).
 | `src/datasets/multihop.py`           | implemented   | Loads `corpus` + `MultiHopRAG` HF configs; URL-keyed chunks; idempotent re-run |
 | `src/datasets/ragtruth.py`           | implemented   | `hallucination` derived from non-empty `labels` span list                      |
 | `src/evaluation/runner.py`           | implemented   | Per-query failures persist a stub row so resume skips them                     |
-| `src/systems/system_b.py`            | implemented   | Per-instance budget (B1/B3/B5); cost via `response_cost` + litellm-pricing fallback |
-| `src/retrieval/opensearch_client.py` | hybrid stub   | `hybrid_search` falls back to k-NN; needs OS search pipeline or client-side RRF |
-| `src/evaluation/metrics.py`          | done          | Runner uses `contains_match`; switch to `exact_match` for MultiHop paper compliance |
+| `src/systems/system_b.py`            | implemented   | Per-instance step budget; two-call route/execute (provider-robust); cost via `response_cost` + litellm-pricing fallback |
+| `src/retrieval/opensearch_client.py` | implemented   | `hybrid_search` = client-side RRF over BM25 + dense kNN; `retrieve()` adds a cross-encoder rerank |
+| `src/evaluation/metrics.py`          | done          | `contains_match` is the paper's containment primary; `exact_match` + `token_f1` + CRAG judge are secondaries |
 
 Everything else (calibration, metrics aggregation, CLI, tracing, schema,
 migrations, Phoenix wiring, Bedrock client) is wired and runnable.

@@ -75,7 +75,7 @@ def by_type(exp_id: int):
     as the `metrics-by-type` CLI, surfaced for the SPA.
     """
     from collections import defaultdict
-    from src.evaluation.metrics import exact_match
+    from src.evaluation.metrics import exact_match, token_f1
     from src.evaluation.judge import CRAG_SCORE
 
     session = get_session()
@@ -92,11 +92,13 @@ def by_type(exp_id: int):
             n = len(pairs)
             correct = sum(1 for r, _ in pairs if r.is_correct)
             exact = sum(exact_match(r.answer or "", q.ground_truth or "") for r, q in pairs) / n if n else 0.0
+            tf1 = sum(token_f1(r.answer or "", q.ground_truth or "") for r, q in pairs) / n if n else 0.0
             judged = [r.llm_judge_label for r, _ in pairs if r.llm_judge_label]
             crag = (sum(CRAG_SCORE.get(lbl, 0.0) for lbl in judged) / len(judged)) if judged else None
             out.append({
                 "system": system, "question_type": qt, "n": n,
-                "accuracy": (correct / n if n else 0.0), "accuracy_exact": exact, "crag_score": crag,
+                "accuracy": (correct / n if n else 0.0), "accuracy_exact": exact,
+                "token_f1": tf1, "crag_score": crag,
             })
         return out
     finally:
@@ -119,11 +121,14 @@ def metrics(exp_id: int):
                 "recall_at_5": m.recall_at_5,
                 "accuracy": m.accuracy,
                 "accuracy_exact": m.accuracy_exact,
+                "avg_token_f1": m.avg_token_f1,
                 "crag_score": m.crag_score,
                 "avg_faithfulness": m.avg_faithfulness,
                 "pct_flagged": m.pct_flagged,
+                "pct_failed": m.pct_failed,
                 "avg_trajectory_length": m.avg_trajectory_length,
                 "total_cost_usd": float(m.total_cost_usd) if m.total_cost_usd is not None else None,
+                "cost_per_query": (float(m.total_cost_usd) / m.n_queries) if (m.total_cost_usd is not None and m.n_queries) else None,
                 "cost_per_correct": float(m.cost_per_correct) if m.cost_per_correct is not None else None,
             }
             for m in rows

@@ -129,7 +129,7 @@ def run_experiment(
 @app.command()
 def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
     """Compute aggregate metrics for an experiment and write to the `metrics` table."""
-    from src.evaluation.metrics import precision_at_k, recall_at_k, exact_match
+    from src.evaluation.metrics import precision_at_k, recall_at_k, exact_match, token_f1
     from src.evaluation.judge import CRAG_SCORE
     from src.db.models import Metric
 
@@ -147,7 +147,7 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             grouped[(run.system, q.dataset)].append((run, q))
 
         table = Table(title=f"Metrics for experiment {experiment}")
-        for col in ["System", "Dataset", "N", "P@5", "R@5", "Accuracy", "Exact", "CRAG", "AvgHHEM", "Cost", "$/correct"]:
+        for col in ["System", "Dataset", "N", "Fail%", "P@5", "R@5", "Accuracy", "Exact", "TokenF1", "CRAG", "AvgHHEM", "Cost", "Cost/q", "$/correct"]:
             table.add_column(col)
 
         for (system, dataset), pairs in grouped.items():
@@ -156,7 +156,12 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             rec = sum(recall_at_k(r.retrieved_chunk_ids, q.relevant_chunk_ids, settings.top_k) for r, q in pairs) / n
             correct = sum(1 for r, _ in pairs if r.is_correct)
             acc = correct / n
+            # Crashed runs persist a NULL-answer stub; policy is "a crash is wrong"
+            # (they stay in the accuracy denominator). Surface the rate so it's visible.
+            n_failed = sum(1 for r, _ in pairs if r.answer is None)
+            pct_failed = n_failed / n if n else None
             exact = sum(exact_match(r.answer or "", q.ground_truth or "") for r, q in pairs) / n
+            tf1 = sum(token_f1(r.answer or "", q.ground_truth or "") for r, q in pairs) / n
             judged = [r.llm_judge_label for r, _ in pairs if r.llm_judge_label]
             crag = (sum(CRAG_SCORE.get(lbl, 0.0) for lbl in judged) / len(judged)) if judged else None
             hhems = [r.hhem_score for r, _ in pairs if r.hhem_score is not None]
@@ -166,6 +171,7 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             n_steps = [r.n_steps for r, _ in pairs if r.n_steps is not None]
             avg_steps = sum(n_steps) / len(n_steps) if n_steps else None
             total_cost = sum(float(r.cost_usd or 0) for r, _ in pairs)
+            cost_per_query = total_cost / n if n else None        # per-query economic unit (RQ2)
             cost_per_correct = total_cost / correct if correct else None
 
             # Upsert
@@ -186,8 +192,10 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
                 avg_faithfulness=avg_hhem,
                 pct_flagged=pct_flagged,
                 avg_trajectory_length=avg_steps,
+                pct_failed=pct_failed,
                 accuracy=acc,
                 accuracy_exact=exact,
+                avg_token_f1=tf1,
                 crag_score=crag,
                 total_cost_usd=total_cost,
                 cost_per_correct=cost_per_correct,
@@ -200,11 +208,14 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
 
             table.add_row(
                 system, dataset, str(n),
+                f"{pct_failed:.1%}" if pct_failed else "0%",
                 f"{p:.3f}", f"{rec:.3f}", f"{acc:.3f}",
                 f"{exact:.3f}",
+                f"{tf1:.3f}",
                 f"{crag:.3f}" if crag is not None else "-",
                 f"{avg_hhem:.3f}" if avg_hhem is not None else "-",
                 f"${total_cost:.3f}",
+                f"${cost_per_query:.5f}" if cost_per_query is not None else "-",
                 f"${cost_per_correct:.4f}" if cost_per_correct else "-",
             )
 
@@ -286,7 +297,7 @@ def metrics_by_type(
     (task_type is uniformly 'qa'). Prints a table and writes JSON; no schema change.
     """
     from collections import defaultdict
-    from src.evaluation.metrics import exact_match
+    from src.evaluation.metrics import exact_match, token_f1
     from src.evaluation.judge import CRAG_SCORE
 
     session = get_session()
@@ -304,7 +315,7 @@ def metrics_by_type(
 
         type_order = {"inference": 0, "comparison": 1, "temporal": 2, "null": 3}
         table = Table(title=f"Accuracy by question type — experiment {experiment} ({dataset})")
-        for col in ["System", "Type", "N", "Accuracy", "Exact", "CRAG"]:
+        for col in ["System", "Type", "N", "Accuracy", "Exact", "TokenF1", "CRAG"]:
             table.add_column(col)
 
         export_rows = []
@@ -315,15 +326,16 @@ def metrics_by_type(
             correct = sum(1 for r, _ in pairs if r.is_correct)
             acc = correct / n if n else 0.0
             exact = sum(exact_match(r.answer or "", q.ground_truth or "") for r, q in pairs) / n if n else 0.0
+            tf1 = sum(token_f1(r.answer or "", q.ground_truth or "") for r, q in pairs) / n if n else 0.0
             judged = [r.llm_judge_label for r, _ in pairs if r.llm_judge_label]
             crag = (sum(CRAG_SCORE.get(lbl, 0.0) for lbl in judged) / len(judged)) if judged else None
             table.add_row(
-                system, qt, str(n), f"{acc:.3f}", f"{exact:.3f}",
+                system, qt, str(n), f"{acc:.3f}", f"{exact:.3f}", f"{tf1:.3f}",
                 f"{crag:.3f}" if crag is not None else "-",
             )
             export_rows.append({
                 "system": system, "question_type": qt, "n": n,
-                "accuracy": acc, "accuracy_exact": exact, "crag_score": crag,
+                "accuracy": acc, "accuracy_exact": exact, "token_f1": tf1, "crag_score": crag,
             })
 
         console.print(table)

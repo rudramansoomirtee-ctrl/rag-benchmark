@@ -34,6 +34,11 @@ chunks from the more-keyword-prominent one.
 6. **Per-query top_k=10** (instead of settings.top_k=5) at each retrieve()
    call. Doubles the candidate pool per query, giving RRF more diverse
    chunks to fuse before the rerank stage trims to top-10 for the answer.
+
+Levers 1-2 have since been partially back-ported to plain F (F now answers
+over its fused top-8 — `FUSED_ANSWER_TOP_K` — and shares this file's few-shot
+decomposer). F-tuned's residual deltas vs F: top-10 answer budget, per-query
+top-10 pools, weighted RRF, source fan-out + reserved slots, CoT prompt.
 """
 import re
 import time
@@ -48,48 +53,7 @@ from src.llm.client import generate, make_instructor_client
 from src.retrieval.retrieve import format_context, retrieve, retrieve_filtered
 from src.systems.base import RunResult
 from src.systems.schemas import Decomposition
-
-
-DECOMPOSE_FEWSHOT_PROMPT = (
-    "You break a multi-hop question into the minimal set of standalone, single-hop "
-    "sub-questions whose answers, combined, answer the original.\n"
-    "\n"
-    "Rules:\n"
-    "- Each sub-question must stand alone: name the entity explicitly, no pronouns "
-    "referring to other sub-questions.\n"
-    "- Use 2-4 sub-questions for a multi-hop question; return an EMPTY list if it is "
-    "already single-hop.\n"
-    "- Do not answer the question; only decompose it.\n"
-    "\n"
-    "Examples:\n"
-    "\n"
-    "Q: 'Do the TechCrunch article on software companies and the Hacker News article on "
-    "The Epoch Times both report an increase in revenue related to payment and "
-    "subscription models, respectively?'\n"
-    "Sub-questions:\n"
-    "- 'Does the TechCrunch article on software companies report an increase in revenue "
-    "related to payment models?'\n"
-    "- 'Does the Hacker News article on The Epoch Times report an increase in revenue "
-    "related to subscription models?'\n"
-    "\n"
-    "Q: 'Who is the individual associated with the cryptocurrency industry facing a "
-    "criminal trial on fraud and conspiracy charges?'\n"
-    "Sub-questions: [] (already single-hop)\n"
-    "\n"
-    "Q: 'Which article published earlier, the TechCrunch piece on Pixel 8 or The Verge "
-    "piece on Spotify, also mentions layoffs?'\n"
-    "Sub-questions:\n"
-    "- 'When was the TechCrunch article on Pixel 8 published?'\n"
-    "- 'When was The Verge article on Spotify published?'\n"
-    "- 'Does the TechCrunch article on Pixel 8 mention layoffs?'\n"
-    "- 'Does The Verge article on Spotify mention layoffs?'\n"
-    "\n"
-    "Q: 'According to the Sporting News report and the CBSSports.com report, which team "
-    "won the matchup discussed?'\n"
-    "Sub-questions:\n"
-    "- 'Which team did the Sporting News report say won the matchup?'\n"
-    "- 'Which team did the CBSSports.com report say won the matchup?'"
-)
+from src.systems.system_f import DECOMPOSE_FEWSHOT_PROMPT
 
 
 COT_ANSWER_SYSTEM_PROMPT = (
@@ -302,9 +266,16 @@ class SystemFTuned:
             ]
         )
 
+        # Evidence ever seen = union of every per-query / source-filtered pool,
+        # before reserved+filler trimmed it to the answering context.
+        all_seen = list(dict.fromkeys(
+            h["chunk_id"] for lst in ranked_lists for h in lst
+        ))
+
         return RunResult(
             answer=gen["content"],
             retrieved_chunk_ids=[h["chunk_id"] for h in final_chunks],
+            all_retrieved_chunk_ids=all_seen,
             hhem_score=None,
             flagged=None,
             n_steps=len(ranked_lists),
