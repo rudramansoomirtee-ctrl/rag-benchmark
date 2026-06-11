@@ -163,14 +163,22 @@ data; the live versions need a populated Postgres. *(All done, commit pending.)*
 - [ ] **W9** Scope cross-provider latency claims (serving infrastructure confound;
   systems run sequentially so time-of-day load differs per system).
 
-### D — Docs housekeeping (separate commit; low priority)
-- [ ] **D1** CLAUDE.md drift: retrieval is hybrid+rerank (not plain kNN); B1/B3/B5
-  removed from `SYSTEM_REGISTRY`; passage granularity is now the ingest default;
-  config defaults changed (`litellm_model` = Nova Lite, `hhem_threshold` = 0.10);
-  `embed_one` is not lru_cached (only the model is).
-- [ ] **D2** README drift: "Implementation status" table calls `hybrid_search` a
-  stub (it isn't); retrieval-eval article-granularity caveat predates passage
-  chunking.
+### D — Docs housekeeping
+- [x] **D1** *(done, commit pending)* CLAUDE.md corrected: shared-calls table now
+  shows the hybrid+rerank `retrieve()` pipeline (not plain `knn_search`) and that
+  only the embedder *model* is lru_cached; System B section rewritten to the
+  two-call ROUTE/execute machine (`RouteDecision`, not the unused `AgentDecision`);
+  B1/B3/B5 noted as removed (incl. the dead `ksweep` CLI example); config block
+  updated (`litellm_model`=Nova Lite, `hhem_threshold`=0.10, added
+  `retrieval_pool`/`reranker_model`/`rerank_provider`); gap #5 reflects
+  passage-by-default ingestion.
+- [x] **D2** *(done, commit pending)* README corrected: the dead B1/B3/B5 sweep
+  ablation replaced with the A/B/F/F-tuned lineup; "systems A–D" → A/B/F/F-tuned;
+  implementation-status rows fixed (`hybrid_search` is implemented not a stub;
+  System B two-call note; `metrics.py` row reflects contains-match-as-primary +
+  token_f1/CRAG secondaries).
+  *Not touched (out of D-scope, code docstrings):* `main.py` still says "Systems
+  A/B/C/D" in the FastAPI `description=` — cosmetic, no doc impact.
 
 ---
 
