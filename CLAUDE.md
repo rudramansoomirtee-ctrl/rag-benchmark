@@ -370,6 +370,13 @@ Experiment detail surfaces config/selection, the full metrics row (incl.
 
 Auto-populated. No code touches Phoenix directly except `tracing.py:init_tracing`.
 
+### Dissertation claim audit — `DISSERTATION_AUDIT.md`
+
+`DISSERTATION_AUDIT.md` (repo root) maps the dissertation's Gaps/RQs/Aims/Objectives
+to implementation status and holds the action register (C/N/P/W/D items). Read it
+before any dissertation-claim, slide, or final-run work and update statuses in
+place — do **not** re-audit the codebase from scratch.
+
 ## Environment setup notes
 
 - `.env` is gitignored; `.env.example` is the template (allow-listed in `.gitignore`).
