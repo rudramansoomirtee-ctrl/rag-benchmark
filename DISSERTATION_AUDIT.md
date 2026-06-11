@@ -105,18 +105,31 @@ Verify the Ammann quote against the PDF before verbatim use (CLAUDE.md already w
   run-time code) — or decide headline numbers cite fresh runs only.
 
 ### N — Analysis (in `notebooks/analysis.py`)
-- [ ] **N1** Rank stability across models: Kendall's τ / Spearman over system
-  rankings per metric (RQ3/RQ4 deliverable).
-- [ ] **N2** Cost + latency variance per strategy; bootstrap CIs for accuracy and
-  cost-per-correct (currently single deterministic run, no uncertainty anywhere).
-- [ ] **N3** Retrieval ceiling / failure attribution: accuracy conditioned on gold
-  evidence coverage in retrieved context; baseline ceiling = System A retrieval or
-  `retrieval-eval`. Note per-system semantics of `retrieved_chunk_ids` differ
-  (A: top-5 used; B: final-step top-5; F: full fused list; F-tuned: 10 used).
-- [ ] **N4** Metric agreement: contains vs exact vs token-F1 vs CRAG — agreement %,
-  correlation, per question type (A4/O6 deliverable).
-- [ ] **N5** Pareto frontier derivation: cheapest strategy per accuracy level
-  (extends the existing cost-accuracy scatter).
+All five added as marimo cells after the existing per-type cell, plus a shared
+helper cell (imports the canonical `metrics.py` scoring so notebook numbers match
+`compute-metrics`; defines `kendall_tau_b`, `bootstrap_ci`, `pareto_frontier`,
+`covered`, `agreement`). Math + exact cell logic verified standalone on synthetic
+data; the live versions need a populated Postgres. *(All done, commit pending.)*
+- [x] **N1** Rank stability: `kendall_tau_b` (tie-aware, hand-rolled — no scipy dep)
+  over per-system accuracy across experiments, labelled by model. Degrades to a
+  "need ≥2 experiments" message until the matrix is run. (Found+fixed a diagonal
+  duplicate-column bug here via the cell-logic test.)
+- [x] **N2** Per-system accuracy bootstrap CI + latency p50/p95/mean/std + cost
+  mean/std/total/per-correct (`variance_tbl`). Works on a single experiment.
+- [x] **N3** Retrieval ceiling + failure attribution (`ceiling` + stacked-bar):
+  coverage = fraction with ≥1 gold article retrieved (the ceiling); every error
+  partitioned into `err_retrieval` (no evidence) vs `err_generation` (had evidence,
+  still wrong) — verified `err_retrieval + err_generation == 1 − accuracy`.
+  Null-type queries (no gold) excluded. NOTE: uses each run's persisted
+  `retrieved_chunk_ids`, whose semantics differ per system (A top-5; B final-step
+  top-5; F full fused; F-tuned 10) — so "coverage" is *evidence in the answering
+  context*, not *ever seen* (that needs C3 for System B).
+- [x] **N4** Metric agreement matrix + heatmap (`agree_mat`): pairwise agreement
+  rate over contains / exact / tokenF1≥.5 / CRAG-good, recomputed under current
+  scoring code (sidesteps stale stored `is_correct`, C5). CRAG cells use judged
+  runs only.
+- [x] **N5** Pareto frontier overlay (`fig_pareto`): marks non-dominated
+  (accuracy, cost-per-correct) points over the scatter.
 
 ### P — Final-run protocol (procedure, no code)
 - [ ] **P1** One wipe + re-ingest + re-index; freeze git SHA; run all 12
@@ -163,13 +176,22 @@ Verify the Ammann quote against the PDF before verbatim use (CLAUDE.md already w
 
 ## 6. Bottom line
 
-Done so far: **C1** (token F1, code + migration + surfacing) and **C2**
-(experiment provenance + corpus fingerprint). Both need `alembic upgrade head`
-in the user's environment before they populate.
+Done so far: **C1** (token F1), **C2** (provenance + corpus fingerprint), and the
+full **N-series** (N1 rank stability, N2 variance/CIs, N3 retrieval ceiling +
+failure attribution, N4 metric agreement, N5 Pareto frontier) in the notebook.
+A4/O6 now have real implementation behind them; RQ3/RQ4 have their analysis code.
+
+Remaining to *claim* the gated items is now mostly **running**, not building:
+- A2/O3, RQ3, RQ4 → run the 4×3 matrix on a frozen pipeline (P1/P2), then the
+  N1/N2 cells populate. Set `GIT_SHA=$(git rev-parse HEAD)` per run (C2).
+- A4/O6 → `alembic upgrade head` + `compute-metrics` (token F1 column) and a
+  `judge` pass (CRAG column), then the N3/N4 cells render over real data.
+- A3/O5 → already claimable per-experiment; N5 frontier + the matrix complete it.
 
 Claim confidently now: A1, A3 (modulo W2), O1, O5, RQ1, RQ2-cost.
-Claim only after action items: A2/O3 (P1/P2 — token F1 code now exists),
-A4/O6 (N3/N4), RQ3 (P1/P2 + N1 + W6), RQ4 (N1/N2 + P1).
-Still factually wrong as currently worded: "single LangGraph framework" (W1),
-"LiteLLM proxy" (W2). Token F1 is no longer a phantom claim — code exists;
-populate the numbers before citing them.
+Still factually wrong as currently worded (slide-only edits): "single LangGraph
+framework" (W1), "LiteLLM proxy" (W2).
+
+Verification status: all added Python compiles; `token_f1` and every N-cell's
+math + pandas logic were unit-tested on synthetic data. Nothing here has been run
+against the live Postgres/OpenSearch/Bedrock stack — that's the user's environment.
