@@ -8,6 +8,11 @@ statuses in place when an action is done (`[ ]` → `[x]`, verdicts ✅/⚠️/�
 Evidence is given as `file:symbol` references. Audited at commit `59ccec3`
 (2026-06-11).
 
+**Companion:** `RELATED_WORK.md` — verified literature comparison (MultiHop-RAG
+papers, orchestration/index/trained method classification, metrics catalogue
+mapped to this repo, citation cautions). Read it INSTEAD of re-searching the
+literature.
+
 Legend: ✅ on point · ⚠️ partial (wording fix or pending run) · ❌ missing/wrong.
 
 ---
@@ -169,8 +174,24 @@ data; the live versions need a populated Postgres. *(All done, commit pending.)*
 - [ ] **W7** Present A/B/F as the controlled single-variable comparison; F-tuned as
   a stacked engineering system (it also changes prompt + context budget), so it
   doesn't undermine the Gap-1 confound claim.
-- [ ] **W8** Citations: pin down Shi et al. 2024; check Asai year; soften/re-cite
-  Gap 3 (Gao/Barnett indirect); verify Ammann quote vs PDF.
+- [ ] **W8** Citations *(partially resolved — see `RELATED_WORK.md` §6 for the
+  verified evidence base)*: still open — pin down Shi et al. 2024 identity; check
+  Asai year; soften/re-cite Gap 3 (now with the verified refinement: IRCoT ran
+  Flan-T5-base→XXL and FlashRAG runs Llama3-8B, so phrase as "controlled
+  orchestration comparisons on budget commercial API models with cost accounting
+  are absent"). Verified by search: Ammann limitation quote is a **paraphrase**
+  (check PDF before verbatim); GPT-4 0.56/0.89 needs Table 6 re-check;
+  Multi-Meta-RAG 17.2% vs 18% version drift; Search-R1 % drifted across arXiv
+  versions (cite COLM camera-ready). New citable support: Gap 1 — no MultiHop-RAG
+  leaderboard exists; Gap 2 — 19 papers audited, only HippoRAG reports $ (appendix),
+  none report cost-per-correct.
+- [ ] **W10** Metric-definition disclosures in the methodology chapter (from
+  `RELATED_WORK.md` §5): (a) `exact_match` does NOT strip articles a/an/the —
+  slightly stricter than SQuAD EM; disclose or align with `token_f1`'s
+  normalization; (b) the CRAG judge uses the **human-rubric** 4-way weights
+  (1/0.5/0/−1), not the auto-eval 3-way merge — name the variant; (c)
+  `contains_match` is **stricter** than the official MultiHop-RAG scorer
+  (word-set intersection, verified in `qa_evaluate.py`) — a *defence*, cite it.
 - [ ] **W9** Scope cross-provider latency claims (serving infrastructure confound;
   systems run sequentially so time-of-day load differs per system).
 
