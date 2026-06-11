@@ -86,9 +86,9 @@ all_retrieved_chunk_ids`. `retrieved_chunk_ids` is the final answering context;
 |------------------|--------------------------------------------------------------|
 | Query embedding  | `retrieval/embeddings.py:embed_one` — `BAAI/llm-embedder`, 768-dim (the *model* is lru_cached via `get_model()`; per-query embeds are not) |
 | Retrieval        | `retrieval/retrieve.py:retrieve` — hybrid BM25 + dense kNN, RRF-fused (`opensearch_client.py:hybrid_search`), then cross-encoder rerank to `top_k`. A/B/F/F-tuned all share this; `knn_search`/`bm25_search` are its building blocks |
-| Multi-list fusion | `retrieval/retrieve.py:rrf_fuse` — client-side RRF over per-query ranked lists; B fuses its iteration lists, F its sub-question lists. Answer context = fused top `FUSED_ANSWER_TOP_K = 8` for both (one-list fusion is the identity ⇒ degenerates to A's 5) |
+| Multi-list fusion | `retrieval/retrieve.py:rrf_fuse` — client-side RRF over per-query ranked lists; B fuses its iteration lists, F its sub-question lists. Answer context = fused top `FUSED_ANSWER_TOP_K = 10` for both (one-list fusion is the identity ⇒ A's single retrieve also returns 10) |
 | LLM call         | `llm/client.py:generate` — LiteLLM, `temperature=0`, returns content + tokens + cost |
-| Top-k            | `settings.top_k = 5` per retrieve() call                      |
+| Top-k            | `settings.top_k = 10` per retrieve() call (A answers over all 10; B/F fuse their iteration/sub-question lists to top-10 via `FUSED_ANSWER_TOP_K`) |
 | Trace capture    | `tracing.py:init_tracing` — auto-instruments LangChain + LiteLLM via openinference |
 
 ### Per-system spec (A and B; F has its own section below)

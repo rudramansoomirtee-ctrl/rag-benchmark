@@ -219,30 +219,30 @@ data; the live versions need a populated Postgres. *(All done, commit pending.)*
 Three approved improvements landed **before** the final 4×3 matrix (so the matrix
 runs the improved systems; historical runs in the DB predate them):
 
-1. **F answers over fused top-8** (`FUSED_ANSWER_TOP_K = 8`, in
-   `retrieval/retrieve.py`), not top-5 — the fan-out's extra evidence is no longer
-   discarded at the answer step. Single-hop F still degenerates to A's exact 5.
+1. **All systems answer over top-10** (`settings.top_k = 10`, `FUSED_ANSWER_TOP_K = 10`):
+   A retrieves 10 in one shot; B fuses its iteration lists to top-10; F fuses its
+   sub-question lists to top-10. F-tuned was already at 10 — unchanged.
+   Single-hop F / B(1 step) still degenerate to A's exact 10-chunk context.
 2. **F uses the few-shot decomposer** (`DECOMPOSE_FEWSHOT_PROMPT` now lives in
    `system_f.py`; F-tuned imports it). F also inherits F-tuned's graceful
    decompose-failure fallback (parse failure → no sub-questions, not a stub row).
 3. **B accumulates evidence across iterations** (IRCoT-style): route/reformulate/
-   answer all see `rrf_fuse(iteration_hits)[:8]` — the same fusion + budget as F —
+   answer all see `rrf_fuse(iteration_hits)[:10]` — the same fusion + budget as F —
    instead of only the latest batch. B(1 step) still equals A's context.
 
 **Disclosure implications for the write-up:**
-- The controlled comparison line becomes: *retriever, generator, prompts and the
-  fused answer budget (8) held constant; A's single retrieval yields 5 by
-  construction.* B and F now differ **only** in how extra queries are produced
-  (sequential conditioned reformulation vs parallel upfront decomposition) — a
-  cleaner contrast than before.
+- The controlled comparison line becomes: *retriever, generator, and answer context
+  budget (10 chunks) held constant across A/B/F. A selects its 10 in one retrieval
+  pass; B and F select theirs by fusing multiple targeted retrievals.* B and F
+  differ **only** in how the extra queries are produced (sequential conditioned
+  reformulation vs parallel upfront decomposition) — the purest possible comparison.
 - Metric semantics shifted for B and F (fresh runs only, consistent with the C5
-  skip-historical decision): B's `retrieved_chunk_ids` (⇒ P@5/R@5, HHEM premise)
+  skip-historical decision): B's `retrieved_chunk_ids` (⇒ P@10/R@10, HHEM premise)
   is now the fused answering context, not the last iteration's batch; F's HHEM
-  premise now equals its actual context (top-8) instead of the whole fused list.
+  premise now equals its actual top-10 context instead of the whole fused list.
   Do **not** compare these columns against pre-change experiment rows.
-- F-tuned's residual deltas vs F: top-10 answer budget, per-query top-10 pools,
-  weighted RRF, source fan-out + reserved slots, CoT prompt (decomposer no longer
-  a delta).
+- F-tuned's residual deltas vs F: per-query top-10 pools (same as F now) + weighted
+  RRF + source fan-out + reserved slots + CoT prompt (decomposer no longer a delta).
 - W7 framing unchanged: F-tuned stays the stacked engineering ceiling.
 
 ## 6. Bottom line

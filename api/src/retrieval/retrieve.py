@@ -52,7 +52,7 @@ def retrieve_filtered(
 # Answer-context budget for systems that fuse multiple ranked lists (B, F).
 # A single top_k=5 list passes through unchanged (a one-list fusion is the
 # identity), so a no-op B/F run degenerates to A's exact context.
-FUSED_ANSWER_TOP_K = 8
+FUSED_ANSWER_TOP_K = 10
 
 
 def rrf_fuse(ranked_lists: list[list[dict]], rrf_k: int = 60) -> list[dict]:

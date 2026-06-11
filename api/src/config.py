@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/llm-embedder"
     embedding_dim: int = 768
     opensearch_index: str = "rag-chunks"
-    top_k: int = 5
+    top_k: int = 10
     retrieval_pool: int = 20
     # BGE-reranker-v2-m3 (568M params) — top of MTEB rerank as of 2024, free,
     # CPU-tolerable (~50-100ms per pair). Strong open-weight replacement for
