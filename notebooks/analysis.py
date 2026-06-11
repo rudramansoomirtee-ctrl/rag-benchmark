@@ -320,6 +320,44 @@ def __(bootstrap_ci, pd, runs_m):
     return (variance_tbl,)
 
 
+# ---- Cost per query per system (RQ2) ----
+@app.cell
+def __(bootstrap_ci, pd, plt, runs_m):
+    # The per-query economic unit. Retrieval is local (embeddings + OpenSearch +
+    # cross-encoder all run in-process, $0), so 100% of per-query cost is Bedrock
+    # LLM generation — differences are purely #LLM-calls × tokens. mean_steps is
+    # the driver: A≈1 call, F/F-tuned≈2 (decompose+answer), B≈2×iterations.
+    _recs = []
+    for _s, _g in runs_m.groupby("system"):
+        _c = _g["cost_usd"].dropna().astype(float)
+        if _c.empty:
+            continue
+        _lo, _hi = bootstrap_ci(_c.tolist())
+        _recs.append(dict(
+            system=_s, n=len(_c),
+            cost_per_query=_c.mean(),
+            ci_lo=_lo, ci_hi=_hi,
+            median=_c.median(), p95=_c.quantile(0.95), std=_c.std(),
+            mean_steps=_g["n_steps"].dropna().mean(),
+            total_cost=_c.sum(),
+        ))
+    cost_per_query = pd.DataFrame(_recs).sort_values("cost_per_query").reset_index(drop=True)
+
+    _fig, _ax = plt.subplots(figsize=(7, 4.5))
+    _x = list(range(len(cost_per_query)))
+    _err = [
+        (cost_per_query.cost_per_query - cost_per_query.ci_lo).clip(lower=0),
+        (cost_per_query.ci_hi - cost_per_query.cost_per_query).clip(lower=0),
+    ]
+    _ax.bar(_x, cost_per_query.cost_per_query, yerr=_err, capsize=5, color="#4878a8")
+    _ax.set_xticks(_x, cost_per_query.system)
+    _ax.set_ylabel("Cost per query (USD)")
+    _ax.set_title("Mean cost per query by system (95% bootstrap CI)")
+    fig_cost_per_query = _fig
+    cost_per_query
+    return cost_per_query, fig_cost_per_query
+
+
 # ---- N1: rank stability across models/experiments (RQ3/RQ4) ----
 @app.cell
 def __(engine, kendall_tau_b, pd):

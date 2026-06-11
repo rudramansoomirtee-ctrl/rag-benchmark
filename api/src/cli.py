@@ -147,7 +147,7 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             grouped[(run.system, q.dataset)].append((run, q))
 
         table = Table(title=f"Metrics for experiment {experiment}")
-        for col in ["System", "Dataset", "N", "Fail%", "P@5", "R@5", "Accuracy", "Exact", "TokenF1", "CRAG", "AvgHHEM", "Cost", "$/correct"]:
+        for col in ["System", "Dataset", "N", "Fail%", "P@5", "R@5", "Accuracy", "Exact", "TokenF1", "CRAG", "AvgHHEM", "Cost", "Cost/q", "$/correct"]:
             table.add_column(col)
 
         for (system, dataset), pairs in grouped.items():
@@ -171,6 +171,7 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             n_steps = [r.n_steps for r, _ in pairs if r.n_steps is not None]
             avg_steps = sum(n_steps) / len(n_steps) if n_steps else None
             total_cost = sum(float(r.cost_usd or 0) for r, _ in pairs)
+            cost_per_query = total_cost / n if n else None        # per-query economic unit (RQ2)
             cost_per_correct = total_cost / correct if correct else None
 
             # Upsert
@@ -214,6 +215,7 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
                 f"{crag:.3f}" if crag is not None else "-",
                 f"{avg_hhem:.3f}" if avg_hhem is not None else "-",
                 f"${total_cost:.3f}",
+                f"${cost_per_query:.5f}" if cost_per_query is not None else "-",
                 f"${cost_per_correct:.4f}" if cost_per_correct else "-",
             )
 

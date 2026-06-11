@@ -128,6 +128,7 @@ def metrics(exp_id: int):
                 "pct_failed": m.pct_failed,
                 "avg_trajectory_length": m.avg_trajectory_length,
                 "total_cost_usd": float(m.total_cost_usd) if m.total_cost_usd is not None else None,
+                "cost_per_query": (float(m.total_cost_usd) / m.n_queries) if (m.total_cost_usd is not None and m.n_queries) else None,
                 "cost_per_correct": float(m.cost_per_correct) if m.cost_per_correct is not None else None,
             }
             for m in rows
