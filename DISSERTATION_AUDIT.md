@@ -214,6 +214,37 @@ data; the live versions need a populated Postgres. *(All done, commit pending.)*
 
 ---
 
+## 5b. System changes after the audit (2026-06-11) — accuracy quick wins
+
+Three approved improvements landed **before** the final 4×3 matrix (so the matrix
+runs the improved systems; historical runs in the DB predate them):
+
+1. **F answers over fused top-8** (`FUSED_ANSWER_TOP_K = 8`, in
+   `retrieval/retrieve.py`), not top-5 — the fan-out's extra evidence is no longer
+   discarded at the answer step. Single-hop F still degenerates to A's exact 5.
+2. **F uses the few-shot decomposer** (`DECOMPOSE_FEWSHOT_PROMPT` now lives in
+   `system_f.py`; F-tuned imports it). F also inherits F-tuned's graceful
+   decompose-failure fallback (parse failure → no sub-questions, not a stub row).
+3. **B accumulates evidence across iterations** (IRCoT-style): route/reformulate/
+   answer all see `rrf_fuse(iteration_hits)[:8]` — the same fusion + budget as F —
+   instead of only the latest batch. B(1 step) still equals A's context.
+
+**Disclosure implications for the write-up:**
+- The controlled comparison line becomes: *retriever, generator, prompts and the
+  fused answer budget (8) held constant; A's single retrieval yields 5 by
+  construction.* B and F now differ **only** in how extra queries are produced
+  (sequential conditioned reformulation vs parallel upfront decomposition) — a
+  cleaner contrast than before.
+- Metric semantics shifted for B and F (fresh runs only, consistent with the C5
+  skip-historical decision): B's `retrieved_chunk_ids` (⇒ P@5/R@5, HHEM premise)
+  is now the fused answering context, not the last iteration's batch; F's HHEM
+  premise now equals its actual context (top-8) instead of the whole fused list.
+  Do **not** compare these columns against pre-change experiment rows.
+- F-tuned's residual deltas vs F: top-10 answer budget, per-query top-10 pools,
+  weighted RRF, source fan-out + reserved slots, CoT prompt (decomposer no longer
+  a delta).
+- W7 framing unchanged: F-tuned stays the stacked engineering ceiling.
+
 ## 6. Bottom line
 
 **The code side of the audit is complete.** Done: **C1** (token F1), **C2**

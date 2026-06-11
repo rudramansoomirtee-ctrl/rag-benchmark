@@ -57,8 +57,9 @@ notebooks/analysis.py           # Marimo notebook for Chapter 4 figures
 ## The systems
 
 Lineup: **A** (naive), **B** (agentic single-tool loop), **F** (query decomposition),
-**F-tuned** (F + CoT answer prompt + few-shot decomposer + source-aware retrieval +
-single-final-rerank). Faithfulness (HHEM) is computed for every run, not by a system
+**F-tuned** (F + top-10 answer budget + per-query top-10 pools + weighted RRF +
+source-aware retrieval + CoT answer prompt; the few-shot decomposer is now shared
+with F). Faithfulness (HHEM) is computed for every run, not by a system
 — the old passive Systems C/D were folded into that metric. System E (vendored
 OpenRag) was removed; see top-of-file note.
 
@@ -85,8 +86,9 @@ all_retrieved_chunk_ids`. `retrieved_chunk_ids` is the final answering context;
 |------------------|--------------------------------------------------------------|
 | Query embedding  | `retrieval/embeddings.py:embed_one` — `BAAI/llm-embedder`, 768-dim (the *model* is lru_cached via `get_model()`; per-query embeds are not) |
 | Retrieval        | `retrieval/retrieve.py:retrieve` — hybrid BM25 + dense kNN, RRF-fused (`opensearch_client.py:hybrid_search`), then cross-encoder rerank to `top_k`. A/B/F/F-tuned all share this; `knn_search`/`bm25_search` are its building blocks |
+| Multi-list fusion | `retrieval/retrieve.py:rrf_fuse` — client-side RRF over per-query ranked lists; B fuses its iteration lists, F its sub-question lists. Answer context = fused top `FUSED_ANSWER_TOP_K = 8` for both (one-list fusion is the identity ⇒ degenerates to A's 5) |
 | LLM call         | `llm/client.py:generate` — LiteLLM, `temperature=0`, returns content + tokens + cost |
-| Top-k            | `settings.top_k = 5`                                          |
+| Top-k            | `settings.top_k = 5` per retrieve() call                      |
 | Trace capture    | `tracing.py:init_tracing` — auto-instruments LangChain + LiteLLM via openinference |
 
 ### Per-system spec (A and B; F has its own section below)
@@ -121,6 +123,11 @@ RETRIEVE → ROUTE ──(reformulate)──┐
 - **Iteration budget** is per-instance. The B1/B3/B5 sweep (budgets 1/3/5 as separate
   registry entries) was **removed** — `SYSTEM_REGISTRY` is now just `A,B,F,F-tuned`;
   historical sweep runs remain in the DB.
+- **Evidence accumulates across iterations** (IRCoT-style union): route, reformulate
+  and answer all operate on `rrf_fuse(iteration_hits)[:FUSED_ANSWER_TOP_K]` — the
+  fused working memory, not just the latest batch. `retrieved_chunk_ids` persists
+  that fused answering context; `all_retrieved_chunk_ids` the raw union. Before
+  this, a chunk found at step 1 was invisible by step 3.
 
 **Faithfulness — HHEM on every run** (`evaluation/runner.py:_faithfulness`, not a system):
 - Computed for **every** system's run (A/B/F) ⇒ faithfulness is a column for all.
@@ -144,14 +151,19 @@ queries — the regression is visible.
 
 ### System F (query decomposition) — `systems/system_f.py`
 
-Multi-hop decomposition baseline. One LLM call (`instructor` → `Decomposition`)
+Multi-hop decomposition baseline. One LLM call (`instructor` → `Decomposition`,
+few-shot `DECOMPOSE_FEWSHOT_PROMPT` — shared with F-tuned, which imports it)
 splits the query into 2-4 single-hop sub-questions; F retrieves for the original
 + each sub-question over the **same** `retrieve()` as A/B, RRF-fuses the lists
-(deduped by chunk_id), and answers once with the fused top-`top_k` context.
+(`rrf_fuse`, deduped by chunk_id), and answers once with the fused top-8
+(`FUSED_ANSWER_TOP_K`) context. `retrieved_chunk_ids` = that top-8 answering
+context (what HHEM scores against); `all_retrieved_chunk_ids` = the full fused list.
 - Retriever held constant ⇒ F-vs-A isolates the *decomposition* effect (vs E,
   which changes the retriever). Distinct from B: parallel decompose+fuse, not an
   iterative reformulation loop.
-- Single-hop ⇒ empty decomposition ⇒ F reduces to A's retrieval.
+- Single-hop ⇒ empty decomposition ⇒ F reduces to A's retrieval and context.
+- Decompose parse failure (Nova/Qwen JSON + trailing prose) degrades gracefully
+  to no sub-questions instead of a stub row — same policy as F-tuned.
 - `n_steps` = number of retrievals (1 + #sub-questions); tokens/cost sum the
   decompose + answer calls (properly tracked, unlike B).
 - **Cite Ammann, Golde & Akbik (2025)**, *Question Decomposition for RAG* (ACL 2025

@@ -2,14 +2,18 @@
 
 Systems A/B/F call `retrieve()` so the retrieval pipeline is constant across
 the controlled-orchestration comparison; the systems differ only in answer
-generation. F-tuned uses `retrieve_pool()` (no rerank) to collect candidates
-from multiple sub-queries before running ONE final rerank over the union,
-plus `retrieve_filtered()` to scope retrieval by metadata (e.g. source).
+generation. F-tuned additionally uses `retrieve_filtered()` to scope retrieval
+by metadata (e.g. source).
 
 Pipeline per call:
   1. Embed the query (BAAI/llm-embedder)
   2. Hybrid BM25 + dense kNN, fused with RRF, top `retrieval_pool` candidates
-  3. Cross-encoder rerank the pool down to `top_k` (skipped by `retrieve_pool`)
+  3. Cross-encoder rerank the pool down to `top_k`
+
+Multi-list systems (B across iterations, F across sub-questions) merge their
+per-query ranked lists with `rrf_fuse` and answer over the fused top
+`FUSED_ANSWER_TOP_K` — shared so the answer-context budget is held constant
+across the orchestration comparison.
 """
 from src.config import settings
 from src.retrieval.embeddings import embed_one
@@ -34,7 +38,7 @@ def retrieve_filtered(
 
     `filters` is a dict of {metadata_field: value}; supported fields are those with
     a .keyword sub-mapping on the index (source / category / author / published_at /
-    title). System G uses this to scope retrieval to e.g. {"source": "Hacker News"}
+    title). F-tuned uses this to scope retrieval to e.g. {"source": "Hacker News"}
     for queries that name a publisher.
     """
     top_k = top_k or settings.top_k
@@ -45,6 +49,27 @@ def retrieve_filtered(
     return rerank(query, pool, top_k=top_k)
 
 
+# Answer-context budget for systems that fuse multiple ranked lists (B, F).
+# A single top_k=5 list passes through unchanged (a one-list fusion is the
+# identity), so a no-op B/F run degenerates to A's exact context.
+FUSED_ANSWER_TOP_K = 8
+
+
+def rrf_fuse(ranked_lists: list[list[dict]], rrf_k: int = 60) -> list[dict]:
+    """Reciprocal Rank Fusion across per-query result lists, deduped by chunk_id.
+
+    A chunk appearing in several lists accumulates score — surfacing evidence
+    that stays relevant under different query formulations.
+    """
+    scores: dict[str, float] = {}
+    chunks: dict[str, dict] = {}
+    for hits in ranked_lists:
+        for rank, h in enumerate(hits, start=1):
+            cid = h["chunk_id"]
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (rrf_k + rank)
+            chunks.setdefault(cid, h)
+    ordered = sorted(scores, key=lambda c: scores[c], reverse=True)
+    return [chunks[c] for c in ordered]
 
 
 def format_context(hits: list[dict]) -> str:

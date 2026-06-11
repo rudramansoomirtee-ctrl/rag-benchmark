@@ -94,10 +94,11 @@ marimo edit notebooks/analysis.py
 ## System F — query decomposition (multi-hop)
 
 System F decomposes a multi-hop question into 2–4 single-hop sub-questions (one
-`instructor`-typed LLM call), retrieves for the original + each sub-question over
-the **same** hybrid+rerank pipeline as A/B, RRF-fuses the results, and answers
-once. Because the retriever is held constant, F-vs-A isolates the *decomposition*
-effect. It's the decomposition rung of the comparison study, distinct from B's
+few-shot `instructor`-typed LLM call), retrieves for the original + each
+sub-question over the **same** hybrid+rerank pipeline as A/B, RRF-fuses the
+results, and answers once over the fused top-8 (`FUSED_ANSWER_TOP_K`, shared
+with B's iteration fusion). Because the retriever is held constant, F-vs-A
+isolates the *decomposition* effect. It's the decomposition rung of the comparison study, distinct from B's
 iterative reformulation loop. No new deps, no keys (Bedrock only).
 
 System F deliberately mirrors **Ammann, Golde & Akbik (2025)**, *Question
@@ -127,10 +128,11 @@ docker compose run --rm api python -m src.cli compute-metrics --experiment <id>
 ## Ablations & secondary metrics
 
 **Systems A / B / F / F-tuned.** The lineup is A (naive), B (iterative agent,
-default 5-step budget), F (decomposition + RRF), and F-tuned (F + CoT answer prompt
-+ few-shot decomposer + source-aware retrieval). A/B/F hold the retriever and
-generator constant so the comparison isolates *orchestration*; F-tuned stacks
-accuracy levers on top of F. (The earlier B1/B3/B5 iteration sweep and the
+default 5-step budget, evidence RRF-fused across iterations), F (decomposition +
+RRF), and F-tuned (F + top-10 budget + weighted RRF + source-aware retrieval +
+CoT answer prompt). A/B/F hold the retriever, generator and fused answer budget
+constant so the comparison isolates *orchestration*; F-tuned stacks accuracy
+levers on top of F. (The earlier B1/B3/B5 iteration sweep and the
 multi-tool System G were both **removed** after the runs showed no gain over the
 baselines; historical runs remain in the DB.)
 
