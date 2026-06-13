@@ -239,24 +239,24 @@
         <h3>Metrics</h3>
         <table><thead><tr>
           <th>Sys</th><th>DS</th><th>N</th><th>P@5</th><th>R@5</th>
-          <th>Acc</th><th>Exact</th><th>CRAG</th><th>Steps</th><th>HHEM</th><th>%flag</th><th>Cost</th><th>$/corr</th>
+          <th>Acc</th><th>Exact</th><th>TF1</th><th>CRAG</th><th>Steps</th><th>HHEM</th><th>%flag</th><th>%fail</th><th>Cost</th><th>$/corr</th>
         </tr></thead><tbody>${mr.map(m => `<tr>
           <td>${m.system}</td><td>${m.dataset}</td><td>${m.n_queries}</td>
           <td>${num(m.precision_at_5)}</td><td>${num(m.recall_at_5)}</td>
-          <td>${num(m.accuracy)}</td><td>${num(m.accuracy_exact)}</td><td>${num(m.crag_score)}</td>
+          <td>${num(m.accuracy)}</td><td>${num(m.accuracy_exact)}</td><td>${num(m.avg_token_f1)}</td><td>${num(m.crag_score)}</td>
           <td>${num(m.avg_trajectory_length)}</td><td>${num(m.avg_faithfulness)}</td>
-          <td>${num(m.pct_flagged)}</td><td>$${num(m.total_cost_usd)}</td>
+          <td>${num(m.pct_flagged)}</td><td>${num(m.pct_failed)}</td><td>$${num(m.total_cost_usd)}</td>
           <td>$${num(m.cost_per_correct, 4)}</td>
         </tr>`).join('')}</tbody></table>` : '<p class="muted">No metrics yet — run compute-metrics.</p>';
 
       const order = ['inference', 'comparison', 'temporal', 'null'];
       const byTypeHtml = (Array.isArray(bt) && bt.length) ? `
         <h3>Accuracy by question type</h3>
-        <table><thead><tr><th>Sys</th><th>Type</th><th>N</th><th>Acc</th><th>Exact</th><th>CRAG</th></tr></thead>
+        <table><thead><tr><th>Sys</th><th>Type</th><th>N</th><th>Acc</th><th>Exact</th><th>TF1</th><th>CRAG</th></tr></thead>
         <tbody>${bt.slice().sort((a, b) => a.system.localeCompare(b.system)
               || (order.indexOf(a.question_type) - order.indexOf(b.question_type))).map(t => `<tr>
           <td>${t.system}</td><td>${escape(t.question_type)}</td><td>${t.n}</td>
-          <td>${num(t.accuracy)}</td><td>${num(t.accuracy_exact)}</td><td>${num(t.crag_score)}</td>
+          <td>${num(t.accuracy)}</td><td>${num(t.accuracy_exact)}</td><td>${num(t.token_f1)}</td><td>${num(t.crag_score)}</td>
         </tr>`).join('')}</tbody></table>` : '';
 
       const runsHtml = rr.length ? `
