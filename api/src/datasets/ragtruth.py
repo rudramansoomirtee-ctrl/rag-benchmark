@@ -1,4 +1,4 @@
-"""Load RAGTruth into Postgres for HHEM threshold calibration.
+"""Load RAGTruth into Postgres.
 
 Sourced from wandb/RAGTruth-processed — the public mirror of the original
 ParticleMedia/RAGTruth, which became gated after the original release.

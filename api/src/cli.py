@@ -3,7 +3,6 @@
 Usage:
     docker compose run --rm api python -m src.cli ingest-dataset multihop
     docker compose run --rm api python -m src.cli index-corpus multihop
-    docker compose run --rm api python -m src.cli calibrate
     docker compose run --rm api python -m src.cli run-experiment --name v1 --systems A,B,F --datasets multihop
     docker compose run --rm api python -m src.cli compute-metrics --experiment 1
     docker compose run --rm api python -m src.cli export --experiment 1
@@ -66,36 +65,6 @@ def index_corpus(name: str):
 
 
 @app.command()
-def calibrate(
-    calibration_split: str = "ragtruth.calibration",
-    output: str = "/data/results/threshold.json",
-):
-    """Fit HHEM threshold on RAGTruth labels. Writes threshold.json + ROC curve."""
-    from src.evaluation.calibration import fit_threshold
-    from src.faithfulness.hhem import score as hhem_score
-
-    session = get_session()
-    try:
-        dataset, split = calibration_split.split(".", 1)
-        rows = session.scalars(
-            select(Query).where(Query.dataset == dataset, Query.split == split)
-        ).all()
-        console.print(f"[bold]calibrating on {len(rows)} RAGTruth rows[/bold]")
-
-        # Each row's prompt is the premise; ground_truth holds the response.
-        # `hallucination` label (1=halluc, 0=faithful) lives in query_metadata.
-        pairs = [(r.query_text, r.ground_truth or "") for r in rows]
-        labels = [int((r.query_metadata or {}).get("hallucination", 0)) for r in rows]
-        scores = hhem_score(pairs)
-
-        summary = fit_threshold(scores, labels, output_dir=str(Path(output).parent))
-        console.print(f"[green]threshold = {summary['threshold']:.3f}[/green] "
-                      f"(F1 = {summary['f1']:.3f}, AUC = {summary['auc']:.3f})")
-    finally:
-        session.close()
-
-
-@app.command()
 def run_experiment(
     name: str = typer.Option(..., "--name"),
     systems: str = typer.Option("A,B,F", "--systems"),
@@ -147,7 +116,7 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             grouped[(run.system, q.dataset)].append((run, q))
 
         table = Table(title=f"Metrics for experiment {experiment}")
-        for col in ["System", "Dataset", "N", "Fail%", "P@5", "R@5", "Accuracy", "Exact", "TokenF1", "CRAG", "AvgHHEM", "Cost", "Cost/q", "$/correct"]:
+        for col in ["System", "Dataset", "N", "Fail%", "P@5", "R@5", "Accuracy", "Exact", "TokenF1", "CRAG", "Cost", "Cost/q", "$/correct"]:
             table.add_column(col)
 
         for (system, dataset), pairs in grouped.items():
@@ -164,10 +133,6 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
             tf1 = sum(token_f1(r.answer or "", q.ground_truth or "") for r, q in pairs) / n
             judged = [r.llm_judge_label for r, _ in pairs if r.llm_judge_label]
             crag = (sum(CRAG_SCORE.get(lbl, 0.0) for lbl in judged) / len(judged)) if judged else None
-            hhems = [r.hhem_score for r, _ in pairs if r.hhem_score is not None]
-            avg_hhem = sum(hhems) / len(hhems) if hhems else None
-            flagged = [r.flagged for r, _ in pairs if r.flagged is not None]
-            pct_flagged = sum(1 for f in flagged if f) / len(flagged) if flagged else None
             n_steps = [r.n_steps for r, _ in pairs if r.n_steps is not None]
             avg_steps = sum(n_steps) / len(n_steps) if n_steps else None
             total_cost = sum(float(r.cost_usd or 0) for r, _ in pairs)
@@ -189,8 +154,6 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
                 n_queries=n,
                 precision_at_5=p,
                 recall_at_5=rec,
-                avg_faithfulness=avg_hhem,
-                pct_flagged=pct_flagged,
                 avg_trajectory_length=avg_steps,
                 pct_failed=pct_failed,
                 accuracy=acc,
@@ -213,7 +176,6 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
                 f"{exact:.3f}",
                 f"{tf1:.3f}",
                 f"{crag:.3f}" if crag is not None else "-",
-                f"{avg_hhem:.3f}" if avg_hhem is not None else "-",
                 f"${total_cost:.3f}",
                 f"${cost_per_query:.5f}" if cost_per_query is not None else "-",
                 f"${cost_per_correct:.4f}" if cost_per_correct else "-",
@@ -494,13 +456,6 @@ def healthcheck():
         console.print(f"[green]phoenix:[/green] HTTP {r.status_code}")
     except Exception as e:
         console.print(f"[red]phoenix FAILED:[/red] {e}")
-
-    try:
-        from src.faithfulness.hhem import score
-        s = score([("a cat sat on the mat", "a feline rested on the rug")])
-        console.print(f"[green]hhem:[/green] {s[0]:.3f}")
-    except Exception as e:
-        console.print(f"[red]hhem FAILED:[/red] {e}")
 
     try:
         from src.llm.client import generate

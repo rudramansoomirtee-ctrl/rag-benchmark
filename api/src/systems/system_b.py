@@ -244,8 +244,6 @@ class SystemB:
             answer=answer,
             retrieved_chunk_ids=[h["chunk_id"] for h in answer_chunks],
             all_retrieved_chunk_ids=all_seen,
-            hhem_score=None,
-            flagged=None,
             n_steps=final["n_steps"],
             tokens_in=final["tokens_in"],
             tokens_out=final["tokens_out"],

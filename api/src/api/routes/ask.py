@@ -48,8 +48,6 @@ def ask(req: AskRequest):
     return {
         "answer": result.answer,
         "retrieved_chunks": _fetch_chunk_text(result.retrieved_chunk_ids),
-        "hhem_score": result.hhem_score,
-        "flagged": result.flagged,
         "n_steps": result.n_steps,
         "tokens_in": result.tokens_in,
         "tokens_out": result.tokens_out,

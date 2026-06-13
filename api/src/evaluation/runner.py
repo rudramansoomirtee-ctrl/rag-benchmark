@@ -182,7 +182,6 @@ def run_experiment(
                 "reranker_model": settings.reranker_model,
                 "rerank_provider": settings.rerank_provider,
                 "retrieval_pool": settings.retrieval_pool,
-                "hhem_threshold": settings.hhem_threshold,
                 "corpus": _corpus_fingerprint(session, datasets),
             },
         )
@@ -227,31 +226,6 @@ def run_experiment(
         session.close()
 
 
-def _faithfulness(chunk_ids: list[str], answer: str | None) -> tuple[float | None, bool | None]:
-    """HHEM faithfulness of `answer` against its retrieved chunks, for every system.
-
-    Premise = the retrieved chunk texts (re-fetched from OpenSearch). Returns
-    (score, flagged) or (None, None) when there's nothing to score or HHEM errs —
-    a faithfulness miss must never lose the run itself.
-    """
-    if not chunk_ids or not answer:
-        return None, None
-    try:
-        from src.faithfulness.hhem import score as hhem_score
-        from src.retrieval.opensearch_client import get_client
-
-        resp = get_client().mget(index=settings.opensearch_index, body={"ids": chunk_ids})
-        premise = "\n\n".join(
-            d["_source"]["text"] for d in resp["docs"] if d.get("found")
-        )
-        if not premise:
-            return None, None
-        s = hhem_score([(premise, answer)])[0]
-        return s, s < settings.hhem_threshold
-    except Exception:
-        return None, None
-
-
 def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> None:
     """Execute one (system, query) run. Idempotent via UNIQUE constraint upsert."""
     try:
@@ -273,8 +247,6 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
     is_correct = (
         contains_match(result.answer, q.ground_truth) if q.ground_truth else None
     )
-    # Faithfulness scores the FINAL answering context, not the full evidence set.
-    hhem, flagged = _faithfulness(result.retrieved_chunk_ids, result.answer)
     # Systems that retrieve once leave all_retrieved_chunk_ids None → fall back to
     # the final context (for them the two are identical).
     all_retrieved = result.all_retrieved_chunk_ids or result.retrieved_chunk_ids
@@ -286,8 +258,6 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
         retrieved_chunk_ids=result.retrieved_chunk_ids,
         all_retrieved_chunk_ids=all_retrieved,
         answer=result.answer,
-        hhem_score=hhem,
-        flagged=flagged,
         n_steps=result.n_steps,
         tokens_in=result.tokens_in,
         tokens_out=result.tokens_out,

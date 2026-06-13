@@ -276,8 +276,6 @@ class SystemFTuned:
             answer=gen["content"],
             retrieved_chunk_ids=[h["chunk_id"] for h in final_chunks],
             all_retrieved_chunk_ids=all_seen,
-            hhem_score=None,
-            flagged=None,
             n_steps=len(ranked_lists),
             tokens_in=tin + gen["tokens_in"],
             tokens_out=tout + gen["tokens_out"],

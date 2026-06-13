@@ -1,7 +1,7 @@
 """Data plane: dataset counts + sync ingest/index endpoints.
 
 Ingest/index are long-running (seconds to minutes); the request stays open
-until they finish. Use the CLI for the very long calibration job.
+until they finish. Use the CLI for long-running jobs.
 """
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, select

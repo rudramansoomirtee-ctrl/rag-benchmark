@@ -90,10 +90,6 @@
       <table id="data-table"><thead><tr>
         <th>Dataset</th><th>Queries</th><th>Chunks</th><th>Actions</th>
       </tr></thead><tbody></tbody></table>
-      <p class="muted" style="margin-top:16px">
-        <strong>Calibrate HHEM:</strong> long-running on CPU — use the CLI:
-        <code>docker compose run --rm api python -m src.cli calibrate</code>
-      </p>
       <div id="data-msg"></div>
     </section>
 
@@ -146,21 +142,18 @@
     };
 
     function renderAnswer(d) {
-      const flagPill = d.flagged === true ? '<span class="pill bad">flagged</span>'
-                     : d.flagged === false ? '<span class="pill ok">faithful</span>' : '';
       const chunks = d.retrieved_chunks.map(c =>
         `<div class="chunk"><div class="cid">${escape(c.id)}</div>${escape(c.text)}</div>`
       ).join('') || '<p class="muted">No chunks retrieved.</p>';
       return `
         <div class="result">
-          <strong>Answer</strong> ${flagPill}
+          <strong>Answer</strong>
           <div class="answer">${escape(d.answer || '')}</div>
           <div class="meta">
             <div><strong>${d.latency_ms} ms</strong>latency</div>
             <div><strong>${d.n_steps}</strong>steps</div>
             <div><strong>${d.tokens_in}/${d.tokens_out}</strong>tokens in/out</div>
             <div><strong>$${(d.cost_usd || 0).toFixed(6)}</strong>cost</div>
-            <div><strong>${d.hhem_score != null ? d.hhem_score.toFixed(3) : '—'}</strong>HHEM</div>
           </div>
           <details><summary>Retrieved chunks (${d.retrieved_chunks.length})</summary>${chunks}</details>
         </div>`;
@@ -239,13 +232,12 @@
         <h3>Metrics</h3>
         <table><thead><tr>
           <th>Sys</th><th>DS</th><th>N</th><th>P@5</th><th>R@5</th>
-          <th>Acc</th><th>Exact</th><th>TF1</th><th>CRAG</th><th>Steps</th><th>HHEM</th><th>%flag</th><th>%fail</th><th>Cost</th><th>$/corr</th>
+          <th>Acc</th><th>Exact</th><th>TF1</th><th>CRAG</th><th>Steps</th><th>%fail</th><th>Cost</th><th>$/corr</th>
         </tr></thead><tbody>${mr.map(m => `<tr>
           <td>${m.system}</td><td>${m.dataset}</td><td>${m.n_queries}</td>
           <td>${num(m.precision_at_5)}</td><td>${num(m.recall_at_5)}</td>
           <td>${num(m.accuracy)}</td><td>${num(m.accuracy_exact)}</td><td>${num(m.avg_token_f1)}</td><td>${num(m.crag_score)}</td>
-          <td>${num(m.avg_trajectory_length)}</td><td>${num(m.avg_faithfulness)}</td>
-          <td>${num(m.pct_flagged)}</td><td>${num(m.pct_failed)}</td><td>$${num(m.total_cost_usd)}</td>
+          <td>${num(m.avg_trajectory_length)}</td><td>${num(m.pct_failed)}</td><td>$${num(m.total_cost_usd)}</td>
           <td>$${num(m.cost_per_correct, 4)}</td>
         </tr>`).join('')}</tbody></table>` : '<p class="muted">No metrics yet — run compute-metrics.</p>';
 
@@ -262,7 +254,7 @@
       const runsHtml = rr.length ? `
         <h3>Runs (first ${rr.length})</h3>
         <table><thead><tr>
-          <th>Sys</th><th>Query</th><th>Answer</th><th>✓</th><th>Judge</th><th>Steps</th><th>HHEM</th><th>$</th><th>ms</th>
+          <th>Sys</th><th>Query</th><th>Answer</th><th>✓</th><th>Judge</th><th>Steps</th><th>$</th><th>ms</th>
         </tr></thead><tbody>${rr.map(r => `<tr>
           <td>${r.system}</td>
           <td title="${escape(r.query)}">${escape((r.query || '').slice(0, 60))}…</td>
@@ -271,7 +263,6 @@
                 : r.is_correct === false ? '<span class="pill bad">✗</span>' : '—'}</td>
           <td>${escape(r.llm_judge_label || '—')}</td>
           <td>${r.n_steps ?? '—'}</td>
-          <td>${num(r.hhem_score)}</td>
           <td>$${num(r.cost_usd, 4)}</td>
           <td>${r.latency_ms ?? '—'}</td>
         </tr>`).join('')}</tbody></table>` : '<p class="muted">No runs.</p>';
