@@ -7,6 +7,10 @@
 > understanding; (b) resolve every `[CONFIRM]`/`[PLACEHOLDER]` marker; (c) verify each citation
 > against the cautions in `RELATED_WORK.md §6`. Markers left deliberately: exact model IDs/versions,
 > final sample size *N*, and hardware (P3) are environment facts only you can fill.
+>
+> **Figures** are Mermaid diagrams — they render inline on GitHub and in VS Code (Markdown Preview
+> Mermaid Support). For a Word/LaTeX submission, export each to PNG/SVG via mermaid.live or the
+> Mermaid CLI (`mmdc`) and swap the code block for the image.
 
 ---
 
@@ -24,6 +28,37 @@ prompts, and the evaluation harness are identical across every cell of the matri
 difference between cells is attributable to the two manipulated factors — orchestration and model —
 rather than to confounded engineering choices. This single-variable framing is the methodological
 core of the dissertation and the basis of its originality claim (§3.2).
+
+```mermaid
+flowchart TB
+    SAMPLE["One seeded stratified sample<br/>MultiHop-RAG · N questions<br/>Inference / Comparison / Temporal / Null"]:::data
+    SAMPLE --> MATRIX{{"4 × 3 fully-crossed matrix → 12 runs"}}:::hub
+    MATRIX --> ORCH
+    MATRIX --> MODELS
+    subgraph ORCH["Orchestration — the manipulated lever"]
+        direction LR
+        A["S1 · A<br/>naive"]:::sys
+        B["S2 · B<br/>iterative"]:::sys
+        F["S3 · F<br/>decomposition"]:::sys
+        FT["S4 · F-tuned<br/>stacked ceiling"]:::sys
+    end
+    subgraph MODELS["Model — budget tier"]
+        direction LR
+        H["Haiku 4.5"]:::mdl
+        NL["Nova Lite"]:::mdl
+        QW["Qwen3"]:::mdl
+    end
+    ORCH --> RET["Shared hybrid retriever — held constant"]:::fixed
+    MODELS --> RET
+    RET --> OUT["accuracy · Token F1 · cost · latency · retrieval ceiling"]:::out
+    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef hub fill:#fff3e0,stroke:#e65100,color:#bf360c
+    classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
+    classDef mdl fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+    classDef fixed fill:#fce4ec,stroke:#ad1457,color:#880e4f
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
+```
+*Figure 3.1 — Experimental design: one fixed sample crossed with four strategies and three models, all sharing a single frozen retriever.*
 
 The experiment is **quantitative and reproducible by construction**. All four strategies are
 implemented behind one Python interface, executed by one deterministic runner, and persisted to a
@@ -43,6 +78,27 @@ chunks**. They differ in exactly one respect: *how those ten chunks are selected
   conditioned on evidence already gathered.
 - **F** selects them by fusing the results of several parallel retrievals, where the queries are
   produced up front by decomposing the question.
+
+```mermaid
+flowchart LR
+    Q(["Question"]):::data
+    Q --> A0
+    Q --> B0
+    Q --> F0
+    A0["<b>A</b> · one retrieval pass"]:::sys
+    B0["<b>B</b> · retrieve → reformulate loop<br/>≤ 5 steps · evidence accumulates"]:::sys
+    F0["<b>F</b> · decompose → parallel retrievals"]:::sys
+    A0 --> FUSE
+    B0 --> FUSE
+    F0 --> FUSE
+    FUSE["RRF fuse → top-10 answer context<br/>(identical budget for all three)"]:::fixed
+    FUSE --> ANS["One answer call<br/>same generator · same prompt"]:::out
+    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
+    classDef fixed fill:#fce4ec,stroke:#ad1457,color:#880e4f
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
+```
+*Figure 3.2 — The controlled single-variable comparison. Only the middle (purple) stage differs across A, B and F; the inputs, the ten-chunk budget (pink), and the generation step (lavender) are held identical.*
 
 Because retriever, generator, prompt, and budget are constant, the A↔B↔F contrast is — to use the
 audit's phrasing — "the purest possible comparison": B and F differ from A and from each other only
@@ -86,6 +142,17 @@ which it differs by reformulating a *search query* (not a chain-of-thought sente
 answer), by its typed route step, and by running on a budget commercial model rather than GPT-3.5
 or PaLM.
 
+```mermaid
+stateDiagram-v2
+    [*] --> RETRIEVE
+    RETRIEVE --> ROUTE: fuse all iterations' hits → top-10
+    ROUTE --> REFORMULATE: action = reformulate
+    ROUTE --> ANSWER: action = answer, or step = max (5)
+    REFORMULATE --> RETRIEVE: new search query
+    ANSWER --> [*]
+```
+*Figure 3.3 — System B's two-call state machine: each loop is a typed ROUTE decision followed by either a reformulation (back to RETRIEVE) or the final ANSWER, bounded at five steps.*
+
 **S3 — System F (query decomposition).** A single language-model call decomposes the question into
 two-to-four single-hop sub-questions (a few-shot `Decomposition` schema, shared with F-tuned). F then
 retrieves for the original question *and* each sub-question over the same retriever as A and B,
@@ -95,6 +162,27 @@ retrieval and context. F mirrors the decomposition-plus-reranker recipe of Amman
 (2025) but is **not a replication**: it uses a hybrid rather than dense-only retriever, per-sub-question
 rerank then fusion rather than a single merged-pool rerank, `temperature = 0` rather than 0.8, and a
 budget model rather than Qwen-32B (`RELATED_WORK.md §4`).
+
+```mermaid
+flowchart TB
+    Q(["Question"]):::data --> D["Decompose · few-shot<br/>2–4 single-hop sub-questions"]:::sys
+    D --> Q0["original query"]:::q
+    D --> Q1["sub-q 1"]:::q
+    D --> Q2["sub-q 2"]:::q
+    D --> Qn["sub-q n"]:::q
+    Q0 --> RET["Shared retrieve (each, in parallel)"]:::fixed
+    Q1 --> RET
+    Q2 --> RET
+    Qn --> RET
+    RET --> FUSE["RRF fuse · dedup → top-10"]:::fixed
+    FUSE --> ANS["Answer once"]:::out
+    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
+    classDef q fill:#fffde7,stroke:#f9a825,color:#f57f17
+    classDef fixed fill:#fce4ec,stroke:#ad1457,color:#880e4f
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
+```
+*Figure 3.4 — System F: parallel fan-out over the original question plus its sub-questions, fused back to the same ten-chunk budget before a single answer call.*
 
 **S4 — System F-tuned (stacked levers).** F plus four additions (`systems/system_f_tuned.py`):
 weighted reciprocal-rank fusion that privileges the original query (2.0×) and source-filtered
@@ -123,6 +211,21 @@ uses a client-side reciprocal-rank fusion (`rrf_fuse`) that is independent of Op
 score scale, so the fusion behaves identically regardless of how the underlying scores are
 distributed. The single-list case is the identity, so A's lone retrieval also returns ten chunks —
 which is why the ten-chunk answer-context budget holds uniformly across A, B and F.
+
+```mermaid
+flowchart LR
+    q(["query"]):::data --> EMB["embed<br/>BAAI/llm-embedder · 768-d"]:::step
+    q --> BM["BM25<br/>lexical"]:::step
+    EMB --> KNN["dense kNN<br/>HNSW · cosine"]:::step
+    BM --> RRF["RRF fuse<br/>first-stage pool = 20"]:::step
+    KNN --> RRF
+    RRF --> RR["cross-encoder rerank<br/>BAAI/bge-reranker-v2-m3"]:::step
+    RR --> TK["top-k context"]:::out
+    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef step fill:#e0f2f1,stroke:#00695c,color:#004d40
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
+```
+*Figure 3.5 — The shared hybrid retrieval substrate (`retrieval/retrieve.py:retrieve`), identical for all four strategies: parallel BM25 + dense search, RRF fusion over a pool of 20, then cross-encoder rerank.*
 
 A small but load-bearing detail of the substrate is **context formatting** (`format_context`): each
 chunk is rendered with its source and title metadata, not just its text. This closes a
@@ -212,6 +315,20 @@ answer** (failed runs stay in the accuracy denominator), with the failure rate s
 rather than hidden.
 
 ## 3.8 Reproducibility, provenance and ethics
+
+```mermaid
+flowchart LR
+    ING["ingest<br/>MultiHop + RAGTruth"]:::step --> IDX["index corpus<br/>OpenSearch HNSW"]:::step
+    IDX --> CAL["calibrate HHEM<br/>(RAGTruth split)"]:::step
+    CAL --> RUN["run 4 × 3 matrix<br/>frozen SHA · one sample · one image"]:::hub
+    RUN --> MET["compute-metrics"]:::step
+    MET --> JUD["CRAG judge<br/>(fixed judge model)"]:::step
+    JUD --> ANA["analysis notebook<br/>N1–N5 → figures"]:::out
+    classDef step fill:#e0f2f1,stroke:#00695c,color:#004d40
+    classDef hub fill:#fff3e0,stroke:#e65100,color:#bf360c
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
+```
+*Figure 3.6 — The reproducible, idempotent evaluation pipeline. Each stage is re-runnable; the matrix runs once on a frozen commit, single sample and single image build (protocol P1/P2).*
 
 Reproducibility is treated as a hard requirement, not an aspiration. The whole stack is Dockerised
 (OpenSearch, Postgres, Phoenix, and the application container), and ingest, indexing, experiment

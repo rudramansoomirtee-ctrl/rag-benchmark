@@ -89,6 +89,17 @@ appendix table):
 
 *Evidence: `compute-metrics` (`avg_token_f1`, `accuracy_exact`, `crag_score`); N4 agreement matrix.*
 
+```mermaid
+flowchart TB
+    C["<b>PRIMARY</b> — contains_match<br/>deterministic · the headline number<br/>stricter than MultiHop-RAG's official scorer"]:::primary
+    C --> E["exact_match<br/>strict string equality"]:::sec
+    C --> T["token_f1<br/>SQuAD lexical overlap"]:::sec
+    C --> J["CRAG judge<br/>LLM · 4-way human rubric"]:::sec
+    classDef primary fill:#fff3e0,stroke:#e65100,color:#bf360c
+    classDef sec fill:#ede7f6,stroke:#4527a0,color:#311b92
+```
+*Figure 4.2a — The correctness-metric pyramid: one deterministic primary plus three secondaries. §4.3 measures how often they agree (the divergence audit, A4).*
+
 **Table 4.3 — Answer-quality metrics** (one model, or appendix the rest):
 
 | System | Contains (primary) | Exact match | Token F1 | CRAG score |
@@ -154,6 +165,20 @@ marked. **The headline cost figure of the dissertation.**
 ## 4.5 Retrieval ceiling and failure attribution — A4 / O6
 
 *Evidence: N3 `ceiling` + stacked-bar. Null-type queries excluded (no gold).*
+
+```mermaid
+flowchart TB
+    R(["Run · non-Null query"]):::data --> Q1{"≥ 1 gold article<br/>in answer context?"}:::dec
+    Q1 -->|no| FR["Retrieval failure<br/>(err_retrieval)"]:::bad
+    Q1 -->|yes| Q2{"Answer correct?"}:::dec
+    Q2 -->|yes| OK["Correct"]:::good
+    Q2 -->|no| FG["Generation failure<br/>(err_generation)"]:::bad
+    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef dec fill:#fff3e0,stroke:#e65100,color:#bf360c
+    classDef bad fill:#ffebee,stroke:#c62828,color:#b71c1c
+    classDef good fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+```
+*Figure 4.4a — Failure-attribution logic (N3). Every non-Null run lands in exactly one leaf, so `err_retrieval + err_generation = 1 − accuracy` — partitioning each system's errors into "couldn't find the evidence" vs "had it, still wrong".*
 
 **Figure 4.4** — per system: coverage (fraction with ≥1 gold article in the answering context = the
 ceiling) and, for each error, the split `err_retrieval` (no evidence retrieved) vs `err_generation`
