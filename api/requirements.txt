@@ -1,5 +1,3 @@
-# --- PyTorch CPU-only wheels (saves ~3 GB vs CUDA default) ---
-
 # Web layer
 fastapi==0.115.*
 uvicorn[standard]==0.32.*
@@ -14,6 +12,9 @@ alembic==1.13.*
 # Retrieval
 opensearch-py==2.*
 sentence-transformers==3.*
+# CPU-only torch — stops sentence-transformers pulling the 6 GB CUDA default.
+torch @ https://download.pytorch.org/whl/cpu/torch-2.4.1%2Bcpu-cp311-cp311-linux_x86_64.whl
+transformers==4.46.*
 
 # LLM gateway (Bedrock + cost tracking)
 litellm>=1.65.0,<2.0
@@ -22,10 +23,6 @@ boto3>=1.35,<2.0
 # Agentic loop (langgraph pulls langchain-core transitively — no need for full langchain)
 langgraph==0.2.*
 instructor>=1.6,<2.0
-
-# Faithfulness (HHEM)
-transformers==4.46.*
-torch @ https://download.pytorch.org/whl/cpu/torch-2.4.1%2Bcpu-cp311-cp311-linux_x86_64.whl
 
 # Dataset loading
 datasets==3.*

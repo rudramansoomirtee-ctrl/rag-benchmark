@@ -136,8 +136,6 @@ class SystemF:
             answer=gen["content"],
             retrieved_chunk_ids=[h["chunk_id"] for h in answer_chunks],
             all_retrieved_chunk_ids=[h["chunk_id"] for h in fused],
-            hhem_score=None,
-            flagged=None,
             n_steps=len(queries),
             tokens_in=tin + gen["tokens_in"],
             tokens_out=tout + gen["tokens_out"],

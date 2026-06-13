@@ -49,11 +49,5 @@ class Settings(BaseSettings):
     # Agent
     max_agent_steps: int = 5
 
-    # HHEM faithfulness gate threshold.
-    # Empirically HHEM-2.1-open scores news-domain (MultiHop) answers in [0.05, 0.30];
-    # the natural 0.5 default would flag effectively every answer. 0.10 retains
-    # meaningful discrimination — only the most clearly ungrounded answers flag.
-    hhem_threshold: float = 0.10
-
 
 settings = Settings()

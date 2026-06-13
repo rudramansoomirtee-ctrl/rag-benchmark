@@ -1,9 +1,8 @@
 """System A: naive RAG. Embed query -> hybrid retrieve+rerank -> answer once.
 
-No reformulation, no faithfulness gate. This is the single-shot baseline.
-Retrieval uses the same hybrid+rerank pipeline as Systems B/C/D so that the
-A/B/C/D comparison isolates answer-generation strategy and faithfulness
-filtering, not retrieval quality.
+No reformulation. This is the single-shot baseline.
+Retrieval uses the same hybrid+rerank pipeline as B/F so that the
+A/B/F comparison isolates orchestration strategy, not retrieval quality.
 """
 import time
 
@@ -44,8 +43,6 @@ class SystemA:
         return RunResult(
             answer=result["content"],
             retrieved_chunk_ids=[h["chunk_id"] for h in hits],
-            hhem_score=None,
-            flagged=None,
             n_steps=1,
             tokens_in=result["tokens_in"],
             tokens_out=result["tokens_out"],

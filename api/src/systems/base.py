@@ -7,8 +7,6 @@ from typing import Protocol
 class RunResult:
     answer: str
     retrieved_chunk_ids: list[str]
-    hhem_score: float | None
-    flagged: bool | None
     n_steps: int
     tokens_in: int
     tokens_out: int
