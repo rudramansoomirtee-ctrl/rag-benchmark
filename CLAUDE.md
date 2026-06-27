@@ -5,7 +5,7 @@ Repo memory for Claude Code sessions. Read this before editing.
 ## What this is
 
 Reproducible Dockerised benchmark of RAG systems (A naive, B agentic, F decomposition)
-against MultiHop-RAG and RAGTruth, with every metric persisted to Postgres
+against MultiHop-RAG and MuSiQue, with every metric persisted to Postgres
 and every span traced to Phoenix. Single-user research tool for a dissertation
 — **not** a production service.
 
@@ -45,8 +45,8 @@ api/src/
 │   ├── models.py               # 5 SQLAlchemy tables
 │   ├── session.py              # engine + SessionLocal
 │   └── migrations/             # Alembic (0001_initial, 0002_secondary_metrics)
-├── datasets/{multihop,ragtruth}.py
-├── evaluation/{runner,metrics,calibration,judge}.py
+├── datasets/{multihop,musique}.py
+├── evaluation/{runner,metrics,judge}.py
 ├── faithfulness/hhem.py        # vectara/hallucination_evaluation_model
 ├── llm/client.py               # LiteLLM wrapper
 ├── retrieval/{embeddings,opensearch_client,indexer,retrieve}.py
@@ -181,29 +181,30 @@ context (what HHEM scores against); `all_retrieved_chunk_ids` = the full fused l
 | Dataset    | HF source                                | Used for                       | Splits        |
 |------------|------------------------------------------|--------------------------------|---------------|
 | MultiHop   | `yixuantt/MultiHopRAG` (`corpus` + `MultiHopRAG` configs) | Retrieval + answer correctness | `eval`        |
-| RAGTruth   | `ParticleMedia/RAGTruth`                 | HHEM threshold calibration     | `calibration` |
+| MuSiQue    | `dgslibisey/MuSiQue`                      | Multi-hop retrieval + answer correctness (anti-shortcut; per-question pooled corpus, index `rag-chunks-musique`) | `eval` |
 
 - MultiHop chunks are keyed by **URL** (`external_id = row["url"]`); a query's
   `relevant_chunk_ids` is the unique URL list from its `evidence_list`.
-- RAGTruth `hallucination` label is derived from non-empty `labels` span list
-  (1 = hallucinated). HHEM premise = `source` (fall back to `prompt`).
+- MuSiQue chunks are per-question paragraphs keyed `<question_id>::p<idx>`;
+  gold = the `is_supporting` paragraph ids, hop count stored as `question_type`.
 - Both ingests are **idempotent** via external_id skip-set.
+- **RAGTruth was removed** as a dataset. It previously seeded HHEM-threshold
+  calibration; HHEM faithfulness is still computed for every run but now against
+  the fixed `settings.hhem_threshold`. Historical `ragtruth` query rows remain in
+  the DB (hidden from `/api/datasets` via `HIDDEN_DATASETS`).
 
-### 2. Index corpus (MultiHop only)
+### 2. Index corpus (MultiHop + MuSiQue)
 
 `retrieval/indexer.py:index_corpus` reads chunks from Postgres, embeds in
 batches of 64, bulk-loads into OpenSearch with HNSW (Lucene, cosine).
-Index settings: `knn.algo_param.ef_search = 100`.
+Index settings: `knn.algo_param.ef_search = 100`. MuSiQue indexes into a
+separate index (`OPENSEARCH_INDEX=rag-chunks-musique`).
 
-### 3. Calibrate HHEM threshold (one-time)
+### 3. HHEM faithfulness threshold
 
-`cli.py:calibrate` →
-- Loads RAGTruth `calibration` rows from Postgres.
-- Scores each `(query_text, ground_truth)` pair through HHEM.
-- `evaluation/calibration.py:fit_threshold` finds the F1-maximising threshold
-  over the flipped-score ROC curve.
-- Writes `/data/results/threshold.json` (+ `calibration_curve.png`).
-- User pastes the threshold into `.env` as `HHEM_THRESHOLD`.
+HHEM scores every run; `flagged = score < settings.hhem_threshold` (default
+`0.10`, env-overridable). The RAGTruth-driven calibration step was removed — the
+threshold is now a fixed config value, not fit from a calibration split.
 
 ### 4. Run experiment
 
@@ -309,7 +310,7 @@ retrieval_pool          = 20                     # hybrid first-stage pool size 
 reranker_model          = "BAAI/bge-reranker-v2-m3"
 rerank_provider         = "local"                # "local" cross-encoder | "bedrock-cohere"
 max_agent_steps         = 5
-hhem_threshold          = 0.10                   # empirical for HHEM-2.1-open on news; overridden post-calibration
+hhem_threshold          = 0.10                   # fixed empirical threshold for HHEM-2.1-open on news (RAGTruth calibration removed)
 ```
 
 ## Conventions
@@ -364,9 +365,9 @@ From the design doc (`rag-benchmark-stack-guide-for llm.md` §2):
 
 ```bash
 docker compose run --rm api python -m src.cli healthcheck
-docker compose run --rm api python -m src.cli ingest-dataset {multihop|ragtruth}
+docker compose run --rm api python -m src.cli ingest-dataset {multihop|musique}
 docker compose run --rm api python -m src.cli index-corpus multihop
-docker compose run --rm api python -m src.cli calibrate
+docker compose run --rm -e OPENSEARCH_INDEX=rag-chunks-musique api python -m src.cli index-corpus musique
 docker compose run --rm api python -m src.cli run-experiment --name X --systems A,B,F --datasets multihop
 docker compose run --rm api python -m src.cli run-experiment --name smoke --systems A --datasets multihop --limit 20  # quick smoke test (first 20)
 docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,B,F,F-tuned --datasets multihop --sample 500 --seed 42  # defensible stratified subset
@@ -380,7 +381,11 @@ docker compose run --rm api python -m src.cli export --experiment N
 ### SPA at `http://localhost:8000/`
 
 Three tabs (Ask / Data / Experiments). Covers fast interactive paths only.
-`run-experiment` and `calibrate` deliberately remain CLI-only (too long for HTTP).
+The **Data** tab links each dataset to its Hugging Face source and has an
+**Explore** panel that browses ingested queries (filter by question_type, click a
+row for gold-chunk text) and chunks (substring search), paginated via the
+`/api/datasets/{ds}/queries|chunks` endpoints. `run-experiment` deliberately
+remains CLI-only (too long for HTTP).
 Experiment detail surfaces config/selection, the full metrics row (incl.
 `accuracy_exact`, `crag_score`, steps), a per-question-type table
 (`/api/experiments/{id}/by-type`), and per-run rows (judge label, steps, cost).

@@ -43,15 +43,11 @@ def _setup():
 
 @app.command()
 def ingest_dataset(name: str, limit: int = typer.Option(None, "--limit", help="Cap items ingested (e.g. MuSiQue questions) for a pilot.")):
-    """Load a dataset (multihop | ragtruth | musique) into Postgres."""
+    """Load a dataset (multihop | musique) into Postgres."""
     if name == "multihop":
         from src.datasets.multihop import ingest
         n_q, n_c = ingest()
         console.print(f"[green]multihop:[/green] {n_q} queries, {n_c} chunks")
-    elif name == "ragtruth":
-        from src.datasets.ragtruth import ingest
-        n = ingest()
-        console.print(f"[green]ragtruth:[/green] {n} rows")
     elif name == "musique":
         from src.datasets.musique import ingest
         n_q, n_c = ingest(limit=limit)

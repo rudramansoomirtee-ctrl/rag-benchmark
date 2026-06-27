@@ -1,6 +1,6 @@
 # RAG Benchmark Stack
 
-Reproducible Dockerised environment to evaluate Systems A/B/F against MultiHop-RAG and RAGTruth, with HHEM faithfulness scored on every run.
+Reproducible Dockerised environment to evaluate Systems A/B/F against MultiHop-RAG and MuSiQue, with HHEM faithfulness scored on every run.
 
 Four services, one `docker compose up`, all telemetry to Phoenix, all metrics to Postgres.
 
@@ -59,14 +59,14 @@ Open:
 ```bash
 # Load datasets into Postgres
 docker compose exec api python -m src.cli ingest-dataset multihop
-docker compose exec api python -m src.cli ingest-dataset ragtruth
+docker compose exec api python -m src.cli ingest-dataset musique
 
-# Index the MultiHop corpus into OpenSearch
+# Index corpora into OpenSearch (MuSiQue uses a separate index)
 docker compose exec api python -m src.cli index-corpus multihop
+docker compose exec -e OPENSEARCH_INDEX=rag-chunks-musique api python -m src.cli index-corpus musique
 
-# Fit the HHEM threshold on RAGTruth
-docker compose exec api python -m src.cli calibrate
-# writes /data/results/threshold.json + calibration_curve.png
+# HHEM faithfulness uses a fixed threshold (settings.hhem_threshold, default 0.10).
+# The old RAGTruth calibration step has been removed.
 
 # Run the full eval (resumable — re-run on failure picks up where it left off)
 docker compose exec api python -m src.cli run-experiment \
@@ -220,14 +220,15 @@ reaches ≈ Hits@10 0.747 / Hits@4 0.663).
 | File                                 | Status        | Notes                                                                          |
 |--------------------------------------|---------------|--------------------------------------------------------------------------------|
 | `src/datasets/multihop.py`           | implemented   | Loads `corpus` + `MultiHopRAG` HF configs; URL-keyed chunks; idempotent re-run |
-| `src/datasets/ragtruth.py`           | implemented   | `hallucination` derived from non-empty `labels` span list                      |
+| `src/datasets/musique.py`            | implemented   | Loads `dgslibisey/MuSiQue`; per-question pooled paragraphs; hop count as `question_type`; separate OpenSearch index |
 | `src/evaluation/runner.py`           | implemented   | Per-query failures persist a stub row so resume skips them                     |
 | `src/systems/system_b.py`            | implemented   | Per-instance step budget; two-call route/execute (provider-robust); cost via `response_cost` + litellm-pricing fallback |
 | `src/retrieval/opensearch_client.py` | implemented   | `hybrid_search` = client-side RRF over BM25 + dense kNN; `retrieve()` adds a cross-encoder rerank |
 | `src/evaluation/metrics.py`          | done          | `contains_match` is the paper's containment primary; `exact_match` + `token_f1` + CRAG judge are secondaries |
 
-Everything else (calibration, metrics aggregation, CLI, tracing, schema,
-migrations, Phoenix wiring, Bedrock client) is wired and runnable.
+Everything else (metrics aggregation, CLI, tracing, schema, migrations,
+Phoenix wiring, Bedrock client) is wired and runnable. HHEM faithfulness uses a
+fixed `settings.hhem_threshold`; the former RAGTruth calibration step is removed.
 
 ### Ready to evaluate — checklist
 
@@ -246,12 +247,11 @@ docker compose run --rm api python -m src.cli healthcheck   # expect 5 green lin
 
 # 2. Load data
 docker compose run --rm api python -m src.cli ingest-dataset multihop
-docker compose run --rm api python -m src.cli ingest-dataset ragtruth
+docker compose run --rm api python -m src.cli ingest-dataset musique
 docker compose run --rm api python -m src.cli index-corpus multihop
+docker compose run --rm -e OPENSEARCH_INDEX=rag-chunks-musique api python -m src.cli index-corpus musique
 
-# 3. Calibrate the HHEM gate
-docker compose run --rm api python -m src.cli calibrate
-# Inspect /data/results/threshold.json — set HHEM_THRESHOLD in .env to that value.
+# 3. HHEM gate uses a fixed threshold (HHEM_THRESHOLD in .env, default 0.10) — no calibration step.
 
 # 4. Smoke-test one system on a handful of queries before the full run
 docker compose run --rm api python -m src.cli run-experiment \
@@ -273,9 +273,9 @@ docker compose run --rm api python -m src.cli export --experiment 2
 - **Accuracy denominator includes failed runs** (rows with `is_correct IS NULL`) in
   `compute-metrics`. Either delete those rows before aggregating, or filter the
   denominator in `cli.py:compute_metrics`.
-- **Dataset field names** for `ParticleMedia/RAGTruth` were coded against the
-  documented RAGTruth schema; if HF returns a different shape on first ingest, adjust
-  the field accessors in `src/datasets/ragtruth.py`.
+- **MuSiQue retrieval is scoped to its own OpenSearch index** (`rag-chunks-musique`);
+  set `OPENSEARCH_INDEX=rag-chunks-musique` when ingesting/indexing/running MuSiQue so
+  its per-question paragraphs never mix with the MultiHop news corpus.
 
 ---
 

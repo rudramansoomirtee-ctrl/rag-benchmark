@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="RAG Benchmark API",
-    description="Evaluator API for Systems A/B/C/D against MultiHop-RAG and RAGTruth.",
+    description="Evaluator API for Systems A/B/F against MultiHop-RAG and MuSiQue.",
     version="0.1.0",
     lifespan=lifespan,
 )

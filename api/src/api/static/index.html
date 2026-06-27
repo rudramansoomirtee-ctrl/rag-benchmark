@@ -118,11 +118,12 @@
 
     <section id="tab-data" class="tab">
       <h2>Datasets</h2>
-      <p class="muted">Counts are read from Postgres. Buttons trigger sync ingestion / indexing — runs take seconds to a few minutes.</p>
+      <p class="muted">Counts are read from Postgres. Buttons trigger sync ingestion / indexing — runs take seconds to a few minutes. <b>Explore</b> browses the ingested queries &amp; chunks.</p>
       <table id="data-table"><thead><tr>
-        <th>Dataset</th><th>Queries</th><th>Chunks</th><th>Actions</th>
+        <th>Dataset</th><th>Source</th><th>Queries</th><th>Chunks</th><th>Actions</th>
       </tr></thead><tbody></tbody></table>
       <div id="data-msg"></div>
+      <div id="data-explore"></div>
     </section>
 
     <section id="tab-experiments" class="tab">
@@ -241,19 +242,127 @@
     // --- Data ---
     async function loadDatasets() {
       const tbody = document.querySelector('#data-table tbody');
-      tbody.innerHTML = '<tr><td colspan="4" class="muted">loading…</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">loading…</td></tr>';
       const r = await fetch('/api/datasets');
       const data = await r.json();
-      tbody.innerHTML = data.map(d => `
+      tbody.innerHTML = data.map(d => {
+        const src = d.source
+          ? `<a href="${d.source.url}" target="_blank" rel="noopener">${escape(d.source.hf_id)}</a>
+             <span class="muted">· ${escape(d.source.paper)}</span>`
+          : '<span class="muted">—</span>';
+        const indexable = d.dataset === 'multihop' || d.dataset === 'musique';
+        return `
         <tr>
-          <td>${d.dataset}</td>
+          <td><b>${escape(d.dataset)}</b></td>
+          <td>${src}</td>
           <td>${d.queries}</td>
           <td>${d.chunks}</td>
           <td>
+            ${d.queries || d.chunks ? `<button class="secondary" onclick="exploreDataset('${d.dataset}')">Explore</button>` : ''}
             <button class="secondary" onclick="runJob('ingest','${d.dataset}')">Ingest</button>
-            ${d.dataset === 'multihop' ? `<button class="secondary" onclick="runJob('index','${d.dataset}')">Index corpus</button>` : ''}
+            ${indexable ? `<button class="secondary" onclick="runJob('index','${d.dataset}')">Index corpus</button>` : ''}
           </td>
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
+    }
+
+    // --- Dataset explorer ---
+    const EXPLORE = {dataset: null, view: 'queries', offset: 0, limit: 25, qtype: '', search: ''};
+    function exploreDataset(dataset) {
+      Object.assign(EXPLORE, {dataset, view: 'queries', offset: 0, qtype: '', search: ''});
+      loadExplore();
+      document.getElementById('data-explore').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    }
+    function setExploreView(view) { Object.assign(EXPLORE, {view, offset: 0}); loadExplore(); }
+    function explorePage(delta) { EXPLORE.offset = Math.max(0, EXPLORE.offset + delta * EXPLORE.limit); loadExplore(); }
+    function setQType(v) { Object.assign(EXPLORE, {qtype: v, offset: 0}); loadExplore(); }
+    function setChunkSearch(v) { Object.assign(EXPLORE, {search: v, offset: 0}); loadExplore(); }
+
+    async function loadExplore() {
+      const el = document.getElementById('data-explore');
+      const {dataset, view, offset, limit} = EXPLORE;
+      el.innerHTML = `<p class="muted">loading ${escape(view)} for ${escape(dataset)}…</p>`;
+      const tabs = `<div class="systems" style="margin:10px 0">
+          <button class="${view === 'queries' ? 'primary' : 'secondary'}" onclick="setExploreView('queries')">Queries</button>
+          <button class="${view === 'chunks' ? 'primary' : 'secondary'}" onclick="setExploreView('chunks')">Chunks</button>
+          <span class="muted" style="margin-left:auto">Exploring <b>${escape(dataset)}</b></span>
+        </div>`;
+      try {
+        if (view === 'queries') {
+          const qp = new URLSearchParams({limit, offset});
+          if (EXPLORE.qtype) qp.set('question_type', EXPLORE.qtype);
+          const d = await fetch(`/api/datasets/${dataset}/queries?${qp}`).then(r => r.json());
+          const filter = (d.question_types || []).length
+            ? `<label style="font-weight:400">Type:
+                 <select onchange="setQType(this.value)">
+                   <option value="">all</option>
+                   ${d.question_types.map(t => `<option value="${escape(t)}" ${t === EXPLORE.qtype ? 'selected' : ''}>${escape(t)}</option>`).join('')}
+                 </select></label>` : '';
+          const rows = d.items.map(q => `
+            <tr class="clickable" onclick="toggleQueryDetail('${dataset}', ${q.id})">
+              <td>${q.id}</td>
+              <td>${q.question_type ? `<code>${escape(q.question_type)}</code>` : '<span class="muted">—</span>'}</td>
+              <td>${escape(q.query_text)}</td>
+              <td>${q.ground_truth != null ? escape(String(q.ground_truth)) : '<span class="muted">—</span>'}</td>
+              <td>${q.n_relevant}</td>
+            </tr>
+            <tr id="qd-${q.id}" style="display:none"><td colspan="5"></td></tr>`).join('');
+          el.innerHTML = tabs + `
+            <p>${filter} <span class="muted">${d.total} queries</span></p>
+            <table><thead><tr><th>ID</th><th>Type</th><th>Question</th><th>Answer</th><th>Gold</th></tr></thead>
+              <tbody>${rows || '<tr><td colspan="5" class="muted">none</td></tr>'}</tbody></table>
+            ${pager(d)}`;
+        } else {
+          const qp = new URLSearchParams({limit, offset});
+          if (EXPLORE.search) qp.set('search', EXPLORE.search);
+          const d = await fetch(`/api/datasets/${dataset}/chunks?${qp}`).then(r => r.json());
+          const rows = d.items.map(c => `
+            <tr>
+              <td><code>${escape(c.external_id)}</code></td>
+              <td>${c.title ? escape(c.title) : ''}${c.source ? ` <span class="muted">(${escape(c.source)})</span>` : ''}</td>
+              <td>${escape(c.text.slice(0, 400))}${c.text.length > 400 ? '…' : ''}</td>
+            </tr>`).join('');
+          el.innerHTML = tabs + `
+            <p><input type="text" placeholder="search chunk text…" value="${escape(EXPLORE.search)}"
+                 onchange="setChunkSearch(this.value)" style="width:280px">
+               <span class="muted">${d.total} chunks</span></p>
+            <table><thead><tr><th>ID</th><th>Title / source</th><th>Text</th></tr></thead>
+              <tbody>${rows || '<tr><td colspan="3" class="muted">none</td></tr>'}</tbody></table>
+            ${pager(d)}`;
+        }
+      } catch (e) {
+        el.innerHTML = tabs + `<div class="error">${e.message}</div>`;
+      }
+    }
+    function pager(d) {
+      const from = d.total ? d.offset + 1 : 0, to = Math.min(d.offset + d.limit, d.total);
+      return `<p>
+        <button class="secondary" ${d.offset <= 0 ? 'disabled' : ''} onclick="explorePage(-1)">‹ Prev</button>
+        <span class="muted">${from}–${to} of ${d.total}</span>
+        <button class="secondary" ${d.offset + d.limit >= d.total ? 'disabled' : ''} onclick="explorePage(1)">Next ›</button>
+      </p>`;
+    }
+    async function toggleQueryDetail(dataset, id) {
+      const row = document.getElementById('qd-' + id);
+      if (!row) return;
+      if (row.style.display !== 'none') { row.style.display = 'none'; return; }
+      const cell = row.firstElementChild;
+      cell.innerHTML = '<span class="muted">loading…</span>';
+      row.style.display = '';
+      const d = await fetch(`/api/datasets/${dataset}/queries/${id}`).then(r => r.json());
+      const meta = d.metadata ? `<pre style="white-space:pre-wrap">${escape(JSON.stringify(d.metadata, null, 2))}</pre>` : '';
+      const chunks = (d.relevant_chunks || []).map(c => `
+        <div style="border-left:3px solid var(--accent,#888);padding:4px 10px;margin:6px 0">
+          <div class="muted"><code>${escape(c.external_id)}</code>${c.metadata && c.metadata.title ? ' · ' + escape(c.metadata.title) : ''}</div>
+          <div>${escape(c.text.slice(0, 700))}${c.text.length > 700 ? '…' : ''}</div>
+        </div>`).join('');
+      cell.innerHTML = `
+        <div style="padding:8px 4px">
+          <p><b>Answer:</b> ${d.ground_truth != null ? escape(String(d.ground_truth)) : '—'}</p>
+          <p><b>Gold chunk ids</b> (${(d.relevant_chunk_ids || []).length}): <span class="muted">${(d.relevant_chunk_ids || []).map(escape).join(', ') || '—'}</span></p>
+          ${chunks ? `<p><b>Gold chunk text:</b></p>${chunks}` : '<p class="muted">Gold chunk text not found in this dataset\'s chunk store.</p>'}
+          ${meta ? `<p><b>Metadata:</b></p>${meta}` : ''}
+        </div>`;
     }
     async function runJob(kind, dataset) {
       const msg = document.getElementById('data-msg');

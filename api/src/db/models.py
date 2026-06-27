@@ -27,9 +27,9 @@ class Experiment(Base):
 class Query(Base):
     __tablename__ = "queries"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    dataset: Mapped[str] = mapped_column(Text, nullable=False)         # 'multihop' | 'ragtruth'
+    dataset: Mapped[str] = mapped_column(Text, nullable=False)         # 'multihop' | 'musique'
     external_id: Mapped[str] = mapped_column(Text, nullable=False)
-    split: Mapped[str] = mapped_column(Text, nullable=False)           # 'calibration' | 'eval'
+    split: Mapped[str] = mapped_column(Text, nullable=False)           # 'eval' (RAGTruth 'calibration' rows are historical)
     task_type: Mapped[str | None] = mapped_column(Text)                # 'qa' | 'summary' | 'data2txt'
     query_text: Mapped[str] = mapped_column(Text, nullable=False)
     ground_truth: Mapped[str | None] = mapped_column(Text)
