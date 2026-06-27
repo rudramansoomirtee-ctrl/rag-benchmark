@@ -82,6 +82,38 @@
     .rr-move.same { background:var(--code); color:var(--muted); }
     .rr-meta { font-family:monospace; font-size:11px; color:var(--muted); margin-left:auto; }
     .rr-text { font-size:12px; white-space:pre-wrap; word-break:break-word; }
+    /* dashboard */
+    .prov { display:flex; gap:6px 18px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin:6px 0 12px; }
+    .prov b { color:var(--fg); }
+    .subnav { display:flex; gap:2px; margin:14px 0; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+    .subnav button { background:none; border:0; padding:8px 14px; cursor:pointer; font:inherit;
+                     color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px; }
+    .subnav button.active { color:var(--fg); border-color:var(--accent); font-weight:600; }
+    .dpane { display:none; } .dpane.active { display:block; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin:12px 0; }
+    .card { border:1px solid var(--line); border-radius:10px; padding:14px; }
+    .card.best { border-color:var(--ok); box-shadow:0 0 0 1px var(--ok) inset; }
+    .card .sysname { font-weight:700; font-size:14px; display:flex; align-items:center; gap:6px; }
+    .card .big { font-size:26px; font-weight:700; margin:6px 0 0; }
+    .card .big small { font-size:11px; font-weight:400; color:var(--muted); }
+    .card .sub { font-size:12px; margin-top:10px; display:grid; grid-template-columns:1fr auto; gap:3px 8px; color:var(--muted); }
+    .card .sub b { color:var(--fg); font-weight:600; }
+    .badge-best { background:#dafbe1; color:var(--ok); font-size:10px; font-weight:700; padding:1px 6px;
+                  border-radius:8px; text-transform:uppercase; letter-spacing:.5px; }
+    .chartbox { border:1px solid var(--line); border-radius:10px; padding:14px; margin:14px 0; }
+    .chartbox h4 { margin:0 0 4px; font-size:14px; }
+    .chartbox .cap { color:var(--muted); font-size:12px; margin:0 0 10px; }
+    .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:8px; }
+    .legend span { display:inline-flex; align-items:center; gap:5px; }
+    .legend i { width:11px; height:11px; border-radius:2px; display:inline-block; }
+    svg.chart { width:100%; height:auto; display:block;
+                font:12px -apple-system,Segoe UI,Helvetica,Arial,sans-serif; }
+    svg.chart text { fill:var(--fg); }
+    svg.chart .axis { stroke:var(--muted); }
+    svg.chart .grid { stroke:var(--line); stroke-dasharray:2 3; }
+    svg.chart .mut { fill:var(--muted); }
+    .cmpbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:10px 0; }
+    .cmpbar select { width:auto; }
   </style>
 </head>
 <body>
@@ -128,10 +160,12 @@
 
     <section id="tab-experiments" class="tab">
       <h2>Experiments</h2>
-      <p class="muted">Created via <code>python -m src.cli run-experiment</code>. Click a row to see runs &amp; metrics.</p>
+      <p class="muted">Created via <code>python -m src.cli run-experiment</code>. Click a row to open the results dashboard. Tick rows and <em>Compare selected</em> for cross-model rank stability.</p>
       <table id="exp-table"><thead><tr>
-        <th>ID</th><th>Name</th><th>Started</th><th>Finished</th>
+        <th>✓</th><th>ID</th><th>Name</th><th>Started</th><th>Finished</th>
       </tr></thead><tbody></tbody></table>
+      <div id="compare-bar"></div>
+      <div id="compare-result"></div>
       <div id="exp-detail"></div>
     </section>
 
@@ -379,46 +413,232 @@
     }
 
     // --- Experiments ---
+    const SYS_COLORS = ['#4878a8','#e0883b','#2a9d8f','#b5476f','#7b6cae','#9c6b3f'];
+    function sysColor(sys, all) { const i = (all || []).indexOf(sys); return SYS_COLORS[(i < 0 ? 0 : i) % SYS_COLORS.length]; }
+    // "bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0 (#35)" -> "claude-haiku-4-5 (#35)"
+    function shortLabel(s) {
+      const m = String(s).match(/^(.*?)\s*(\(#\d+\))\s*$/);
+      let model = m ? m[1] : String(s), tag = m ? m[2] : '';
+      model = model.replace(/^bedrock\//, '').replace(/^(eu|us|apac)\./, '').replace(/^(anthropic|amazon)\./, '')
+                   .replace(/-\d{8}.*$/, '').replace(/-v\d+:\d+$/, '').replace(/:\d+$/, '');
+      return (model + ' ' + tag).trim();
+    }
+
     async function loadExperiments() {
       const tbody = document.querySelector('#exp-table tbody');
-      tbody.innerHTML = '<tr><td colspan="4" class="muted">loading…</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">loading…</td></tr>';
       const r = await fetch('/api/experiments');
       const data = await r.json();
       window.EXPS = data;
+      const click = id => `onclick="loadExpDetail(${id})"`;
       tbody.innerHTML = data.length
-        ? data.map(e => `<tr class="clickable" onclick="loadExpDetail(${e.id})">
-            <td>${e.id}</td><td>${escape(e.name)}</td>
-            <td>${fmt(e.started_at)}</td><td>${fmt(e.finished_at) || '<span class="muted">—</span>'}</td>
+        ? data.map(e => `<tr class="clickable">
+            <td onclick="event.stopPropagation()"><input type="checkbox" class="exp-cb" value="${e.id}" onchange="updateCompareBar()"></td>
+            <td ${click(e.id)}>${e.id}</td><td ${click(e.id)}>${escape(e.name)}</td>
+            <td ${click(e.id)}>${fmt(e.started_at)}</td><td ${click(e.id)}>${fmt(e.finished_at) || '<span class="muted">—</span>'}</td>
           </tr>`).join('')
-        : '<tr><td colspan="4" class="muted">No experiments yet. Run one via the CLI.</td></tr>';
+        : '<tr><td colspan="5" class="muted">No experiments yet. Run one via the CLI.</td></tr>';
       document.getElementById('exp-detail').innerHTML = '';
+      updateCompareBar();
+    }
+
+    function updateCompareBar() {
+      const sel = [...document.querySelectorAll('.exp-cb:checked')].map(c => c.value);
+      const bar = document.getElementById('compare-bar');
+      bar.innerHTML = sel.length ? `<div class="cmpbar">
+        <b>${sel.length}</b> selected ·
+        <label>dataset <select id="cmp-dataset"><option value="multihop">multihop</option><option value="musique">musique</option></select></label>
+        <button class="primary" onclick="runCompare()">Compare selected</button>
+        <button class="secondary" onclick="clearCompare()">clear</button></div>` : '';
+    }
+    function clearCompare() {
+      document.querySelectorAll('.exp-cb:checked').forEach(c => c.checked = false);
+      updateCompareBar();
+      document.getElementById('compare-result').innerHTML = '';
+    }
+    async function runCompare() {
+      const sel = [...document.querySelectorAll('.exp-cb:checked')].map(c => c.value);
+      const ds = (document.getElementById('cmp-dataset') || {}).value || 'multihop';
+      const res = document.getElementById('compare-result');
+      res.innerHTML = '<p class="muted">comparing…</p>';
+      try {
+        const r = await fetch(`/api/experiments/compare?ids=${sel.join(',')}&dataset=${ds}`);
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+        res.innerHTML = renderCompare(d);
+      } catch (e) { res.innerHTML = `<div class="error">${e.message}</div>`; }
     }
     async function loadExpDetail(id) {
       const detail = document.getElementById('exp-detail');
       detail.innerHTML = '<p class="muted">loading…</p>';
-      const [mr, rr, bt] = await Promise.all([
+      const [mr, an, rr, bt] = await Promise.all([
         fetch(`/api/experiments/${id}/metrics`).then(r => r.json()),
-        fetch(`/api/experiments/${id}/runs?limit=100`).then(r => r.json()),
+        fetch(`/api/experiments/${id}/analysis`).then(r => r.json()).catch(() => ({ per_system: [], pareto: [], agreement: null })),
+        fetch(`/api/experiments/${id}/runs`).then(r => r.json()),
         fetch(`/api/experiments/${id}/by-type`).then(r => r.json()).catch(() => []),
       ]);
-
+      window.CURRENT_EXP = id; window.RUNS = rr; window.ANALYSIS = an; window.METRICS = mr; window.BYTYPE = bt;
       const exp = (window.EXPS || []).find(e => e.id === id);
-      const cfg = (exp && exp.config) || {};
-      const sel = cfg.selection || {};
-      const configHtml = exp ? `
-        <h3>Config</h3>
-        <div class="meta">
-          <div><strong>${escape((cfg.systems || []).join(', ')) || '—'}</strong>systems</div>
-          <div><strong>${escape(cfg.model || '—')}</strong>model</div>
-          <div><strong>${escape(sel.method || '—')}${sel.n != null ? ' (n=' + sel.n + ')' : ''}</strong>selection</div>
-          <div><strong>${sel.seed != null ? sel.seed : '—'}</strong>seed</div>
-          <div><strong>${cfg.top_k ?? '—'}</strong>top_k</div>
-          <div><strong>${cfg.max_agent_steps ?? '—'}</strong>max steps</div>
-        </div>` : '';
 
-      const metricsHtml = mr.length ? `
-        <h3>Metrics</h3>
-        <table><thead><tr>
+      const tabs = [['overview', 'Overview'], ['accuracy', 'Accuracy'], ['cost', 'Cost & latency'], ['failures', 'Failures'], ['runs', `Runs (${rr.length})`]];
+      detail.innerHTML = renderProvenance(exp)
+        + `<div class="subnav">${tabs.map((t, i) => `<button data-pane="${t[0]}" class="${i === 0 ? 'active' : ''}">${t[1]}</button>`).join('')}</div>`
+        + tabs.map(t => `<div id="dpane-${t[0]}" class="dpane${t[0] === 'overview' ? ' active' : ''}"></div>`).join('');
+
+      renderOverview(); renderAccuracy(); renderCostLatency(); renderFailures(); renderRunsPane();
+      detail.querySelectorAll('.subnav button').forEach(b => b.onclick = () => {
+        detail.querySelectorAll('.subnav button').forEach(x => x.classList.toggle('active', x === b));
+        detail.querySelectorAll('.dpane').forEach(p => p.classList.toggle('active', p.id === 'dpane-' + b.dataset.pane));
+      });
+    }
+
+    function renderProvenance(exp) {
+      if (!exp) return '';
+      const c = exp.config || {}, sel = c.selection || {};
+      const fields = [
+        ['systems', (c.systems || []).join(', ')], ['model', c.model ? shortLabel(c.model) : null],
+        ['selection', (sel.method || '—') + (sel.n != null ? ` (n=${sel.n})` : '')],
+        ['seed', sel.seed], ['top_k', c.top_k], ['max steps', c.max_agent_steps],
+        ['git', c.git_sha ? String(c.git_sha).slice(0, 7) : null], ['litellm', c.litellm_version],
+      ].filter(([k, v]) => v != null && v !== '');
+      return `<h3 style="margin-top:18px">${escape(exp.name)}</h3>
+        <div class="prov">${fields.map(([k, v]) => `<span>${k}: <b>${escape(String(v))}</b></span>`).join('')}</div>`;
+    }
+
+    function renderOverview() {
+      const an = window.ANALYSIS || {}, ps = an.per_system || [], el = document.getElementById('dpane-overview');
+      if (!ps.length) { el.innerHTML = '<p class="muted">No analysis available (no runs, or the API could not score them).</p>'; return; }
+      const bestAcc = Math.max(...ps.map(p => p.accuracy || 0));
+      const cards = ps.map(p => {
+        const best = (p.accuracy || 0) === bestAcc;
+        const ci = (p.acc_ci_lo != null && p.acc_ci_hi != null)
+          ? `<small> [${(p.acc_ci_lo * 100).toFixed(0)}–${(p.acc_ci_hi * 100).toFixed(0)}]</small>` : '';
+        return `<div class="card ${best ? 'best' : ''}">
+          <div class="sysname">${escape(p.system)} ${best ? '<span class="badge-best">top</span>' : ''}</div>
+          <div class="big">${(p.accuracy * 100).toFixed(1)}%${ci}</div>
+          <div class="muted" style="font-size:11px">accuracy · containment (n=${p.n})</div>
+          <div class="sub">
+            <span>Token-F1</span><b>${num(p.token_f1)}</b>
+            <span>Exact</span><b>${num(p.accuracy_exact)}</b>
+            <span>$/correct</span><b>${p.cost_per_correct != null ? '$' + num(p.cost_per_correct, 4) : '—'}</b>
+            <span>latency p50/p95</span><b>${p.lat_p50 != null ? Math.round(p.lat_p50) + '/' + Math.round(p.lat_p95) + 'ms' : '—'}</b>
+            <span>avg steps</span><b>${num(p.mean_steps, 2)}</b>
+          </div></div>`;
+      }).join('');
+      const pts = (an.pareto || []).map(p => ({ label: p.system, x: p.accuracy, y: p.cost_per_correct, on_frontier: p.on_frontier }));
+      const pareto = pts.length ? `<div class="chartbox"><h4>Cost–accuracy Pareto</h4>
+        <p class="cap">Lower-right is better: high accuracy at low \$ per correct answer. Green = non-dominated frontier.</p>
+        ${svgScatterPareto(pts)}</div>` : '';
+      el.innerHTML = `<div class="cards">${cards}</div>${pareto}`;
+    }
+
+    function renderAccuracy() {
+      const an = window.ANALYSIS || {}, ps = an.per_system || [], el = document.getElementById('dpane-accuracy');
+      if (!ps.length) { el.innerHTML = '<p class="muted">No analysis.</p>'; return; }
+      const systems = ps.map(p => p.system);
+      const headline = svgGroupedBars(systems, [
+        { name: 'Containment', color: '#4878a8', values: ps.map(p => p.accuracy) },
+        { name: 'Token-F1', color: '#2a9d8f', values: ps.map(p => p.token_f1) },
+        { name: 'Exact', color: '#e0883b', values: ps.map(p => p.accuracy_exact) },
+      ], { max: 1, fmt: v => (v * 100).toFixed(0) + '%' });
+      const hLegend = `<div class="legend">
+        <span><i style="background:#4878a8"></i>Containment (primary)</span>
+        <span><i style="background:#2a9d8f"></i>Token-F1</span>
+        <span><i style="background:#e0883b"></i>Exact Match</span></div>`;
+
+      const bt = window.BYTYPE || [];
+      let byTypeChart = '';
+      if (bt.length) {
+        const order = ['inference', 'comparison', 'temporal', 'null', '2hop', '3hop', '4hop'];
+        const types = [...new Set(bt.map(t => t.question_type))].sort((a, b) => {
+          const ia = order.indexOf(a), ib = order.indexOf(b);
+          return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+        });
+        const sysset = [...new Set(bt.map(t => t.system))];
+        const lookup = {}; bt.forEach(t => lookup[t.system + '|' + t.question_type] = t.accuracy);
+        const series = sysset.map(s => ({ name: s, color: sysColor(s, sysset), values: types.map(ty => lookup[s + '|' + ty] ?? null) }));
+        byTypeChart = `<div class="chartbox"><h4>Accuracy by ${/hop/.test(types[0] || '') ? 'hop count' : 'question type'}</h4>
+          <p class="cap">Containment accuracy per category, clustered by system — the orchestration story.</p>
+          ${svgGroupedBars(types, series, { max: 1, fmt: v => (v * 100).toFixed(0) + '%' })}
+          <div class="legend">${sysset.map(s => `<span><i style="background:${sysColor(s, sysset)}"></i>${escape(s)}</span>`).join('')}</div></div>`;
+      }
+
+      let agree = '';
+      if (an.agreement && an.agreement.matrix) {
+        agree = `<div class="chartbox"><h4>Metric agreement</h4>
+          <p class="cap">How often two answer-correctness signals give the same verdict per run (1.00 = identical). Divergence is the point: containment is lenient, exact strict, Token-F1 graded, CRAG an LLM judge.</p>
+          ${svgHeatmap(an.agreement.labels, an.agreement.labels, an.agreement.matrix, { min: 0.5, max: 1 })}</div>`;
+      }
+      el.innerHTML = `<div class="chartbox"><h4>Answer quality</h4>
+        <p class="cap">Primary containment accuracy alongside the field-standard Token-F1 and Exact Match.</p>
+        ${headline}${hLegend}</div>${byTypeChart}${agree}
+        <details style="margin-top:8px"><summary>Raw metrics table</summary>${renderMetricsTable(window.METRICS || [])}</details>`;
+    }
+
+    function renderCostLatency() {
+      const ps = (window.ANALYSIS || {}).per_system || [], el = document.getElementById('dpane-cost');
+      if (!ps.length) { el.innerHTML = '<p class="muted">No analysis.</p>'; return; }
+      const all = ps.map(p => p.system);
+      const costItems = ps.filter(p => p.cost_mean != null).map(p => ({
+        label: p.system, value: p.cost_mean, lo: p.cost_ci_lo, hi: p.cost_ci_hi, color: sysColor(p.system, all),
+      }));
+      const cost = costItems.length ? `<div class="chartbox"><h4>Cost per query</h4>
+        <p class="cap">Mean Bedrock \$ per query with 95% bootstrap CI. Retrieval is local (\$0) — cost is purely #LLM-calls × tokens.</p>
+        ${svgBarsCI(costItems, { fmt: v => '$' + v.toFixed(5) })}</div>` : '';
+      const latItems = ps.filter(p => p.lat_p50 != null).map(p => ({
+        label: p.system, value: p.lat_p50, lo: p.lat_p50, hi: p.lat_p95, color: sysColor(p.system, all),
+      }));
+      const lat = latItems.length ? `<div class="chartbox"><h4>Latency</h4>
+        <p class="cap">Median (bar) → p95 (whisker) per query, ms. Cross-provider comparisons are confounded by serving infrastructure.</p>
+        ${svgBarsCI(latItems, { fmt: v => Math.round(v) + 'ms' })}</div>` : '';
+      const stepItems = ps.filter(p => p.mean_steps != null).map(p => ({
+        label: p.system, value: p.mean_steps, color: sysColor(p.system, all),
+      }));
+      const steps = stepItems.length ? `<div class="chartbox"><h4>LLM calls / retrievals per query</h4>
+        <p class="cap">Mean trajectory length (n_steps) — the cost driver: A≈1, F/F-tuned≈2, B≈2×iterations.</p>
+        ${svgBarsCI(stepItems, { fmt: v => v.toFixed(2) })}</div>` : '';
+      el.innerHTML = (cost + lat + steps) || '<p class="muted">No cost/latency data.</p>';
+    }
+
+    function renderFailures() {
+      const ps = (window.ANALYSIS || {}).per_system || [], el = document.getElementById('dpane-failures');
+      const items = ps.filter(p => p.n_gold_bearing).map(p => ({
+        label: p.system,
+        err_generation: p.err_generation || 0, err_retrieval: p.err_retrieval || 0,
+        correct: Math.max(0, 1 - (p.err_generation || 0) - (p.err_retrieval || 0)),
+        coverage: p.coverage,
+      }));
+      if (!items.length) { el.innerHTML = '<p class="muted">No gold-bearing queries — failure attribution needs evidence-labelled queries.</p>'; return; }
+      el.innerHTML = `<div class="chartbox"><h4>Failure attribution & retrieval ceiling</h4>
+        <p class="cap">Over gold-bearing queries, every wrong answer is either a <b>retrieval failure</b> (gold never retrieved) or a <b>generation failure</b> (gold was present, model still wrong). The ▮ marker is coverage — the retrieval ceiling that accuracy cannot meaningfully exceed.</p>
+        ${svgStackedFailure(items)}
+        <div class="legend">
+          <span><i style="background:#2a9d8f"></i>correct</span>
+          <span><i style="background:#e9c46a"></i>generation failure</span>
+          <span><i style="background:#e76f51"></i>retrieval failure</span>
+          <span><i style="background:#111"></i>coverage (ceiling)</span></div></div>`;
+    }
+
+    function renderRunsPane() {
+      const rr = window.RUNS || [], el = document.getElementById('dpane-runs');
+      if (!rr.length) { el.innerHTML = '<p class="muted">No runs.</p>'; return; }
+      const systems = [...new Set(rr.map(r => r.system))];
+      const types = [...new Set(rr.map(r => r.question_type).filter(Boolean))];
+      el.innerHTML = `<div class="run-controls">
+          <label>System <select id="run-sys-filter" onchange="renderRuns()"><option value="all">all</option>${systems.map(s => `<option value="${escape(s)}">${escape(s)}</option>`).join('')}</select></label>
+          <label>Type <select id="run-type-filter" onchange="renderRuns()"><option value="all">all</option>${types.map(s => `<option value="${escape(s)}">${escape(s)}</option>`).join('')}</select></label>
+          <label>Failure <select id="run-fail-filter" onchange="renderRuns()"><option value="all">all</option><option value="retrieval">retrieval</option><option value="generation">generation</option></select></label>
+          <label><input type="checkbox" id="run-only-incorrect" onchange="renderRuns()"> only incorrect</label>
+          <input id="run-search" placeholder="search question / answer / gold…" oninput="renderRuns()" style="max-width:240px">
+          <span class="muted" id="runs-count"></span>
+        </div>
+        <div id="runs-list"></div>`;
+      renderRuns();
+    }
+
+    function renderMetricsTable(mr) {
+      if (!mr.length) return '<p class="muted">No metrics yet — run compute-metrics.</p>';
+      return `<table><thead><tr>
           <th>Sys</th><th>DS</th><th>N</th><th>P@5</th><th>R@5</th>
           <th>Acc</th><th>Exact</th><th>TF1</th><th>CRAG</th><th>Steps</th><th>%fail</th><th>Cost</th><th>$/corr</th>
         </tr></thead><tbody>${mr.map(m => `<tr>
@@ -427,66 +647,197 @@
           <td>${num(m.accuracy)}</td><td>${num(m.accuracy_exact)}</td><td>${num(m.avg_token_f1)}</td><td>${num(m.crag_score)}</td>
           <td>${num(m.avg_trajectory_length)}</td><td>${num(m.pct_failed)}</td><td>$${num(m.total_cost_usd)}</td>
           <td>$${num(m.cost_per_correct, 4)}</td>
-        </tr>`).join('')}</tbody></table>` : '<p class="muted">No metrics yet — run compute-metrics.</p>';
+        </tr>`).join('')}</tbody></table>`;
+    }
 
-      const order = ['inference', 'comparison', 'temporal', 'null'];
-      const byTypeHtml = (Array.isArray(bt) && bt.length) ? `
-        <h3>Accuracy by question type</h3>
-        <table><thead><tr><th>Sys</th><th>Type</th><th>N</th><th>Acc</th><th>Exact</th><th>TF1</th><th>CRAG</th></tr></thead>
-        <tbody>${bt.slice().sort((a, b) => a.system.localeCompare(b.system)
-              || (order.indexOf(a.question_type) - order.indexOf(b.question_type))).map(t => `<tr>
-          <td>${t.system}</td><td>${escape(t.question_type)}</td><td>${t.n}</td>
-          <td>${num(t.accuracy)}</td><td>${num(t.accuracy_exact)}</td><td>${num(t.token_f1)}</td><td>${num(t.crag_score)}</td>
-        </tr>`).join('')}</tbody></table>` : '';
+    function renderCompare(d) {
+      const piv = d.pivot || {}, tau = d.kendall_tau || {};
+      let html = '<h3 style="margin-top:18px">Cross-experiment comparison</h3>';
+      if (!piv.systems || !piv.systems.length) return html + '<p class="muted">No runs for the selected experiments / dataset.</p>';
+      const exps = (piv.experiments || []), expsShort = exps.map(shortLabel);
+      html += `<div class="chartbox"><h4>Accuracy pivot</h4>
+        <p class="cap">Containment accuracy per system across the selected runs.</p>
+        ${svgHeatmap(expsShort, piv.systems, piv.rows, { min: 0, max: 1 })}</div>`;
+      if (tau.note) html += `<p class="muted">${escape(tau.note)}</p>`;
+      else if (tau.matrix && tau.matrix.length) html += `<div class="chartbox"><h4>Rank stability — Kendall τ-b</h4>
+        <p class="cap">Pairwise correlation of the system ranking between experiments. +1 = identical ranking, −1 = reversed. High τ across model tiers ⇒ the orchestration ranking is model-stable.</p>
+        ${svgHeatmap((tau.labels || []).map(shortLabel), (tau.labels || []).map(shortLabel), tau.matrix, { min: -1, max: 1, diverge: true })}</div>`;
+      const per = d.per_system_per_exp || [], systems = piv.systems;
+      const lookup = {}; per.forEach(p => lookup[p.experiment + '|' + p.system] = p.accuracy);
+      const series = exps.map((e, i) => ({ name: expsShort[i], color: SYS_COLORS[i % SYS_COLORS.length], values: systems.map(s => lookup[e + '|' + s] ?? null) }));
+      html += `<div class="chartbox"><h4>Accuracy by system across experiments</h4>
+        ${svgGroupedBars(systems, series, { max: 1, fmt: v => (v * 100).toFixed(0) + '%' })}
+        <div class="legend">${exps.map((e, i) => `<span><i style="background:${SYS_COLORS[i % SYS_COLORS.length]}"></i>${escape(expsShort[i])}</span>`).join('')}</div></div>`;
+      const pts = per.filter(p => p.accuracy != null && p.cost_per_correct).map(p => ({
+        label: p.system + '·' + shortLabel(p.experiment).replace(/\s*\(#\d+\)$/, ''), x: p.accuracy, y: p.cost_per_correct, on_frontier: false,
+      }));
+      if (pts.length) html += `<div class="chartbox"><h4>Combined cost–accuracy</h4>${svgScatterPareto(pts)}</div>`;
+      return html;
+    }
 
-      const systems = [...new Set(rr.map(r => r.system))];
-      const runsHtml = rr.length ? `
-        <h3>Runs — questions, answers &amp; gold (${rr.length})</h3>
-        <div class="run-controls">
-          <label>System
-            <select id="run-sys-filter" onchange="renderRuns()">
-              <option value="all">all</option>
-              ${systems.map(s => `<option value="${escape(s)}">${escape(s)}</option>`).join('')}
-            </select>
-          </label>
-          <label><input type="checkbox" id="run-only-incorrect" onchange="renderRuns()"> only incorrect</label>
-          <span class="muted" id="runs-count"></span>
-        </div>
-        <div id="runs-list"></div>` : '<p class="muted">No runs.</p>';
+    async function showStoredTrace(runId, btn) {
+      const out = document.getElementById('trace-' + runId);
+      btn.disabled = true;
+      out.innerHTML = '<p class="muted">loading stored trace…</p>';
+      try {
+        const r = await fetch(`/api/experiments/${window.CURRENT_EXP}/runs/${runId}/trace`);
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+        out.innerHTML = renderTrace(d.trace || []) || '<p class="muted">No stored trace events.</p>';
+      } catch (e) { out.innerHTML = `<div class="error">${e.message}</div>`; }
+      finally { btn.disabled = false; }
+    }
 
-      detail.innerHTML = configHtml + metricsHtml + byTypeHtml + runsHtml;
-      window.CURRENT_EXP = id;
-      window.RUNS = rr;
-      if (rr.length) renderRuns();
+    // --- SVG chart helpers (no deps; theme-aware via CSS vars) ---
+    function _hex(h) { h = h.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+    function _mix(a, b, t) { const pa = _hex(a), pb = _hex(b);
+      return `rgb(${Math.round(pa[0] + (pb[0] - pa[0]) * t)},${Math.round(pa[1] + (pb[1] - pa[1]) * t)},${Math.round(pa[2] + (pb[2] - pa[2]) * t)})`; }
+
+    function svgBarsCI(items, { max = null, fmt = v => v.toFixed(3) } = {}) {
+      const W = 640, rowH = 34, padL = 110, padR = 80, padT = 8, H = padT * 2 + items.length * rowH;
+      const mx = max != null ? max : Math.max(...items.map(d => Math.max(d.value || 0, d.hi || 0)), 1e-9);
+      const x = v => padL + (v / mx) * (W - padL - padR);
+      let s = '';
+      items.forEach((d, i) => {
+        const cy = padT + i * rowH + rowH / 2;
+        s += `<text x="${padL - 8}" y="${cy + 4}" text-anchor="end">${escape(d.label)}</text>`;
+        s += `<rect x="${padL}" y="${cy - 9}" width="${Math.max(0, x(d.value || 0) - padL)}" height="18" rx="3" fill="${d.color}"/>`;
+        if (d.lo != null && d.hi != null && !isNaN(d.lo) && !isNaN(d.hi)) {
+          s += `<line x1="${x(d.lo)}" x2="${x(d.hi)}" y1="${cy}" y2="${cy}" stroke="#1f2328" stroke-width="1.5"/>
+                <line x1="${x(d.lo)}" x2="${x(d.lo)}" y1="${cy - 4}" y2="${cy + 4}" stroke="#1f2328"/>
+                <line x1="${x(d.hi)}" x2="${x(d.hi)}" y1="${cy - 4}" y2="${cy + 4}" stroke="#1f2328"/>`;
+        }
+        s += `<text x="${x(d.value || 0) + 6}" y="${cy + 4}" class="mut">${fmt(d.value || 0)}</text>`;
+      });
+      return `<svg class="chart" style="max-width:${W}px" viewBox="0 0 ${W} ${H}">${s}</svg>`;
+    }
+
+    function svgGroupedBars(categories, series, { max = 1, fmt = v => v.toFixed(2) } = {}) {
+      const W = 680, H = 320, padL = 46, padR = 12, padT = 14, padB = 56;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+      const n = categories.length, m = series.length;
+      const groupW = plotW / Math.max(n, 1), barW = Math.min(30, (groupW - 12) / Math.max(m, 1));
+      const y = v => padT + plotH - (v / max) * plotH;
+      let s = '';
+      for (let g = 0; g <= 4; g++) {
+        const v = max * g / 4, yy = y(v);
+        s += `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${yy}" y2="${yy}"/><text x="${padL - 6}" y="${yy + 3}" text-anchor="end" class="mut">${fmt(v)}</text>`;
+      }
+      categories.forEach((cat, ci) => {
+        const gx = padL + ci * groupW;
+        series.forEach((se, si) => {
+          const v = se.values[ci]; if (v == null) return;
+          const bx = gx + (groupW - barW * m) / 2 + si * barW;
+          s += `<rect x="${bx}" y="${y(v)}" width="${barW - 2}" height="${padT + plotH - y(v)}" fill="${se.color}" rx="2"><title>${escape(se.name)} · ${escape(cat)}: ${fmt(v)}</title></rect>`;
+        });
+        s += `<text x="${gx + groupW / 2}" y="${H - padB + 16}" text-anchor="middle">${escape(cat)}</text>`;
+      });
+      return `<svg class="chart" style="max-width:${W}px" viewBox="0 0 ${W} ${H}">${s}</svg>`;
+    }
+
+    function svgStackedFailure(items) {
+      const W = 680, rowH = 42, padL = 90, padR = 16, padT = 8, H = padT * 2 + items.length * rowH;
+      const span = W - padL - padR, x = v => padL + v * span;
+      const seg = [['correct', '#2a9d8f'], ['err_generation', '#e9c46a'], ['err_retrieval', '#e76f51']];
+      let s = '';
+      items.forEach((d, i) => {
+        const cy = padT + i * rowH + rowH / 2; let acc = 0;
+        s += `<text x="${padL - 8}" y="${cy + 4}" text-anchor="end">${escape(d.label)}</text>`;
+        seg.forEach(([k, c]) => {
+          const v = d[k] || 0; if (v <= 0) return;
+          s += `<rect x="${x(acc)}" y="${cy - 11}" width="${v * span}" height="22" fill="${c}"><title>${k}: ${(v * 100).toFixed(1)}%</title></rect>`;
+          acc += v;
+        });
+        if (d.coverage != null) {
+          const cx = x(d.coverage);
+          s += `<line x1="${cx}" x2="${cx}" y1="${cy - 16}" y2="${cy + 16}" stroke="#111" stroke-width="2"/><circle cx="${cx}" cy="${cy - 16}" r="3" fill="#111"><title>coverage ${(d.coverage * 100).toFixed(1)}%</title></circle>`;
+        }
+      });
+      return `<svg class="chart" style="max-width:${W}px" viewBox="0 0 ${W} ${H}">${s}</svg>`;
+    }
+
+    function svgScatterPareto(points, { xLabel = 'Accuracy', yLabel = 'Cost per correct (USD)' } = {}) {
+      const W = 640, H = 380, padL = 70, padR = 24, padT = 16, padB = 46;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+      const xmax = Math.max(...points.map(p => p.x), 0.001) * 1.08;
+      const ymax = Math.max(...points.map(p => p.y), 1e-9) * 1.15;
+      const X = v => padL + (v / xmax) * plotW, Y = v => padT + plotH - (v / ymax) * plotH;
+      let s = `<line class="axis" x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}"/><line class="axis" x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}"/>`;
+      for (let g = 0; g <= 4; g++) {
+        const xv = xmax * g / 4, yv = ymax * g / 4;
+        s += `<text x="${X(xv)}" y="${padT + plotH + 16}" text-anchor="middle" class="mut">${(xv * 100).toFixed(0)}%</text>`;
+        s += `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${Y(yv)}" y2="${Y(yv)}"/><text x="${padL - 6}" y="${Y(yv) + 3}" text-anchor="end" class="mut">$${yv.toFixed(4)}</text>`;
+      }
+      const front = points.filter(p => p.on_frontier).sort((a, b) => a.x - b.x);
+      if (front.length > 1) s += `<polyline fill="none" stroke="#2a9d8f" stroke-width="2" points="${front.map(p => X(p.x) + ',' + Y(p.y)).join(' ')}"/>`;
+      points.forEach(p => {
+        s += `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="${p.on_frontier ? 7 : 5}" fill="${p.on_frontier ? '#2a9d8f' : '#9aa4ae'}" stroke="#fff"><title>${escape(p.label)}: ${(p.x * 100).toFixed(1)}% · $${p.y.toFixed(5)}</title></circle>`;
+        s += `<text x="${X(p.x) + 9}" y="${Y(p.y) + 4}">${escape(p.label)}</text>`;
+      });
+      s += `<text x="${padL + plotW / 2}" y="${H - 6}" text-anchor="middle" class="mut">${escape(xLabel)}</text>`;
+      s += `<text transform="translate(14 ${padT + plotH / 2}) rotate(-90)" text-anchor="middle" class="mut">${escape(yLabel)}</text>`;
+      return `<svg class="chart" style="max-width:${W}px" viewBox="0 0 ${W} ${H}">${s}</svg>`;
+    }
+
+    function svgHeatmap(xlabels, ylabels, matrix, { min = 0, max = 1, hi = '#2a9d8f', diverge = false } = {}) {
+      const cell = 66, padL = Math.max(...ylabels.map(l => l.length), 4) * 6 + 18, padT = 22, padR = 8, padB = 8;
+      const W = padL + xlabels.length * cell + padR, H = padT + ylabels.length * cell + padB;
+      const color = v => {
+        if (v == null) return 'var(--code)';
+        if (diverge) { const t = Math.max(-1, Math.min(1, v / Math.max(Math.abs(min), Math.abs(max), 1e-9)));
+          return t >= 0 ? _mix('#ffffff', hi, t) : _mix('#ffffff', '#e76f51', -t); }
+        let t = (v - min) / (max - min); t = Math.max(0, Math.min(1, t));
+        return _mix('#ffffff', hi, t);
+      };
+      const fmt = v => v == null ? '—' : v.toFixed(2);
+      let s = '';
+      xlabels.forEach((xl, j) => s += `<text x="${padL + j * cell + cell / 2}" y="${padT - 8}" text-anchor="middle" class="mut">${escape(xl)}</text>`);
+      ylabels.forEach((yl, i) => {
+        s += `<text x="${padL - 6}" y="${padT + i * cell + cell / 2 + 4}" text-anchor="end" class="mut">${escape(yl)}</text>`;
+        xlabels.forEach((xl, j) => {
+          const v = matrix[i][j];
+          s += `<rect x="${padL + j * cell}" y="${padT + i * cell}" width="${cell - 2}" height="${cell - 2}" fill="${color(v)}" stroke="var(--line)"/>`;
+          s += `<text x="${padL + j * cell + cell / 2}" y="${padT + i * cell + cell / 2 + 4}" text-anchor="middle">${fmt(v)}</text>`;
+        });
+      });
+      return `<svg class="chart" style="max-width:${W}px" viewBox="0 0 ${W} ${H}">${s}</svg>`;
     }
 
     function renderRuns() {
       const runs = window.RUNS || [];
-      const sysVal = (document.getElementById('run-sys-filter') || {}).value || 'all';
-      const badOnly = (document.getElementById('run-only-incorrect') || {}).checked || false;
-      let filtered = runs;
-      if (sysVal !== 'all') filtered = filtered.filter(r => r.system === sysVal);
-      if (badOnly) filtered = filtered.filter(r => r.is_correct === false);
-      const cnt = document.getElementById('runs-count');
-      if (cnt) cnt.textContent = `showing ${filtered.length} of ${runs.length}`;
-      const list = document.getElementById('runs-list');
-      if (!list) return;
-      list.innerHTML = filtered.length ? filtered.map(r => {
+      const g = id => document.getElementById(id);
+      const sysVal = (g('run-sys-filter') || {}).value || 'all';
+      const typeVal = (g('run-type-filter') || {}).value || 'all';
+      const failVal = (g('run-fail-filter') || {}).value || 'all';
+      const badOnly = (g('run-only-incorrect') || {}).checked || false;
+      const q = ((g('run-search') || {}).value || '').toLowerCase().trim();
+      let f = runs;
+      if (sysVal !== 'all') f = f.filter(r => r.system === sysVal);
+      if (typeVal !== 'all') f = f.filter(r => r.question_type === typeVal);
+      if (failVal !== 'all') f = f.filter(r => r.failure_type === failVal);
+      if (badOnly) f = f.filter(r => r.is_correct === false);
+      if (q) f = f.filter(r => ((r.query || '') + ' ' + (r.answer || '') + ' ' + (r.ground_truth || '')).toLowerCase().includes(q));
+      const cnt = g('runs-count'); if (cnt) cnt.textContent = `showing ${f.length} of ${runs.length}`;
+      const list = g('runs-list'); if (!list) return;
+      list.innerHTML = f.length ? f.map(r => {
         const cls = r.is_correct === true ? 'ok' : r.is_correct === false ? 'bad' : '';
         const pill = r.is_correct === true ? '<span class="pill ok">✓ correct</span>'
                    : r.is_correct === false ? '<span class="pill bad">✗ wrong</span>'
                    : '<span class="pill">— no answer</span>';
+        const ftag = r.failure_type
+          ? `<span class="pill ${r.failure_type === 'retrieval' ? 'bad' : ''}" style="${r.failure_type === 'generation' ? 'background:#fff4d6;color:#9a6700' : ''}">${r.failure_type} fail</span>` : '';
         const predCls = r.is_correct === false ? 'pred-bad' : '';
+        const stored = r.has_trace ? `<button class="secondary" onclick="showStoredTrace(${r.id}, this)">🔬 Show stored trace</button> ` : '';
         return `<div class="run-card ${cls}">
           <div class="run-head">
             <span class="sys">${escape(r.system)}</span>
-            ${pill}
-            <span style="margin-left:auto">qid ${r.query_id ?? r.id} · ${r.n_steps ?? '—'} steps · $${num(r.cost_usd, 4)} · ${r.latency_ms ?? '—'}ms${r.llm_judge_label ? ' · judge: ' + escape(r.llm_judge_label) : ''}</span>
+            ${pill}${ftag}
+            <span style="margin-left:auto">qid ${r.query_id ?? r.id} · ${escape(r.question_type || '?')} · ${r.n_steps ?? '—'} steps · TF1 ${num(r.token_f1, 2)} · $${num(r.cost_usd, 4)} · ${r.latency_ms ?? '—'}ms${r.llm_judge_label ? ' · judge: ' + escape(r.llm_judge_label) : ''}</span>
           </div>
           <div class="qa-row"><span class="qa-label">Question</span><span class="qa-text">${escape(r.query || '')}</span></div>
           <div class="qa-row"><span class="qa-label">Answer</span><span class="qa-text ${predCls}">${escape(r.answer || '(no answer produced)')}</span></div>
           <div class="qa-row"><span class="qa-label">Gold</span><span class="qa-text gold">${escape(r.ground_truth || '—')}</span></div>
-          <div style="margin-top:8px"><button class="secondary" onclick="replayRun(${r.id}, this)">🔬 Replay with trace</button></div>
+          <div style="margin-top:8px">${stored}<button class="secondary" onclick="replayRun(${r.id}, this)">🔬 Replay with trace</button></div>
           <div id="trace-${r.id}"></div>
         </div>`;
       }).join('') : '<p class="muted">No matching runs.</p>';

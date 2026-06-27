@@ -99,77 +99,19 @@ def __():
     _api = next((p for p in _candidates if p and (p / "src").is_dir()), None)
     if _api and str(_api) not in sys.path:
         sys.path.insert(0, str(_api))
+    # Single source of truth: the canonical scoring + statistical helpers live in
+    # api/src/evaluation/{metrics,stats}.py, so the notebook, `compute-metrics`, and
+    # the web dashboard can never drift.
     from src.evaluation.metrics import contains_match, exact_match, token_f1
-
-    def _aslist(x):
-        """JSONB columns arrive as Python lists, but coerce defensively."""
-        if x is None:
-            return []
-        if isinstance(x, str):
-            try:
-                return json.loads(x)
-            except Exception:
-                return []
-        return list(x)
-
-    def _article(cid):
-        """Passage id `<url>#p<i>` -> parent article url (gold is url-keyed)."""
-        return str(cid).split("#", 1)[0]
-
-    def covered(retrieved, relevant):
-        """True if >=1 gold article is present in the retrieved set; None when the
-        query has no gold evidence (null-type) so it's excluded from the ceiling."""
-        rel = set(_aslist(relevant))
-        if not rel:
-            return None
-        return len({_article(c) for c in _aslist(retrieved)} & rel) > 0
+    from src.evaluation.stats import (
+        bootstrap_ci, covered, kendall_tau_b, pareto_frontier, _aslist,
+    )
 
     def agreement(a, b):
-        """Fraction of rows where two binary metric series agree (both non-null)."""
+        """Fraction of rows where two binary metric series agree (both non-null).
+        Pandas wrapper over the same equality-rate logic as `stats.agreement_rate`."""
         m = a.notna() & b.notna()
         return float((a[m] == b[m]).mean()) if m.any() else float("nan")
-
-    def kendall_tau_b(x, y):
-        """Rank-correlation with tie handling. +1 identical order, -1 reversed."""
-        x, y, n = list(x), list(y), len(x)
-        C = D = Tx = Ty = 0
-        for i in range(n):
-            for j in range(i + 1, n):
-                sx = (x[i] > x[j]) - (x[i] < x[j])
-                sy = (y[i] > y[j]) - (y[i] < y[j])
-                if sx == 0 and sy == 0:
-                    continue
-                if sx == 0:
-                    Ty += 1
-                elif sy == 0:
-                    Tx += 1
-                elif sx == sy:
-                    C += 1
-                else:
-                    D += 1
-        denom = ((C + D + Tx) * (C + D + Ty)) ** 0.5
-        return (C - D) / denom if denom else float("nan")
-
-    def bootstrap_ci(values, n_boot=2000, seed=0, lo=2.5, hi=97.5):
-        """Percentile bootstrap CI for the mean of a 0/1 (or numeric) sequence."""
-        v = np.asarray(list(values), dtype=float)
-        if len(v) == 0:
-            return (float("nan"), float("nan"))
-        rng = np.random.default_rng(seed)
-        means = v[rng.integers(0, len(v), size=(n_boot, len(v)))].mean(axis=1)
-        return (float(np.percentile(means, lo)), float(np.percentile(means, hi)))
-
-    def pareto_frontier(points):
-        """Non-dominated (label, accuracy, cost): no other point has higher-or-equal
-        accuracy at lower-or-equal cost. Returned ordered by accuracy."""
-        front = [
-            (lbl, a, c) for lbl, a, c in points
-            if not any(
-                a2 >= a and c2 <= c and (a2 > a or c2 < c)
-                for l2, a2, c2 in points if l2 != lbl
-            )
-        ]
-        return sorted(front, key=lambda t: t[1])
 
     return (
         agreement, bootstrap_ci, contains_match, covered, exact_match,
