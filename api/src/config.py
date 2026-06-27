@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     embedding_dim: int = 768
     opensearch_index: str = "rag-chunks"
     top_k: int = 10
+    # Answer-context budget for systems fusing multiple ranked lists (B, F): they
+    # answer over the fused top-N. Configurable so it can be swept (budget
+    # sensitivity). A single-list (A) run answers over top_k directly.
+    fused_answer_top_k: int = 10
     retrieval_pool: int = 20
     # BGE-reranker-v2-m3 (568M params) — top of MTEB rerank as of 2024, free,
     # CPU-tolerable (~50-100ms per pair). Strong open-weight replacement for
@@ -45,6 +49,19 @@ class Settings(BaseSettings):
     # config doesn't break a long run.
     rerank_provider: str = "local"
     bedrock_rerank_model_id: str = "cohere.rerank-v3-5:0"
+    # Bedrock Rerank isn't offered in eu-west-2; call it in a supported region
+    # (eu-central-1 Frankfurt) while LLM generation stays in aws_region.
+    bedrock_rerank_region: str = "eu-central-1"
+    # Source-stratified first-stage pool (shared-retriever ablation lever).
+    # When on, retrieve() guarantees each source's top candidate enters the
+    # rerank pool so one publisher can't monopolise it — the generic,
+    # source-agnostic replacement for F-tuned's reserved-slot hack. Applied in
+    # the shared retrieve() so A/B/F/F-tuned inherit it identically, keeping the
+    # controlled comparison valid. OFF = legacy behaviour (env: RETRIEVAL_STRATIFY_SOURCES).
+    retrieval_stratify_sources: bool = False
+    # Naive dense-kNN-only retriever (no BM25 / RRF / rerank) for weakened-retriever
+    # ablations. OFF = full hybrid+rerank pipeline (env: RETRIEVAL_SEMANTIC_ONLY).
+    retrieval_semantic_only: bool = False
 
     # Agent
     max_agent_steps: int = 5

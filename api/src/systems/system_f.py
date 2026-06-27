@@ -30,49 +30,49 @@ from src.retrieval.retrieve import (
 from src.systems.base import RunResult
 from src.systems.schemas import Decomposition
 from src.systems.system_a import ANSWER_SYSTEM_PROMPT
+from src.trace import trace_event
 
 logger = logging.getLogger("rag.system_f")
 
 
 DECOMPOSE_FEWSHOT_PROMPT = (
-    "You break a multi-hop question into the minimal set of standalone, single-hop "
+    "You break a multi-hop question into the minimal ORDERED set of single-hop "
     "sub-questions whose answers, combined, answer the original.\n"
     "\n"
     "Rules:\n"
-    "- Each sub-question must stand alone: name the entity explicitly, no pronouns "
-    "referring to other sub-questions.\n"
+    "- Use ONLY the entities, names, places and terms that appear in the original "
+    "question. NEVER introduce or guess a named entity that is not in the question.\n"
+    "- A later hop often depends on an earlier hop's answer (a 'bridge'). Refer to that "
+    "earlier answer descriptively — 'that person', 'that city', 'that company' — never "
+    "invent its name. Order the sub-questions so each needs only the original question "
+    "plus answers to earlier sub-questions.\n"
     "- Use 2-4 sub-questions for a multi-hop question; return an EMPTY list if it is "
     "already single-hop.\n"
-    "- Do not answer the question; only decompose it.\n"
+    "- Decompose only; do not answer.\n"
     "\n"
     "Examples:\n"
     "\n"
-    "Q: 'Do the TechCrunch article on software companies and the Hacker News article on "
-    "The Epoch Times both report an increase in revenue related to payment and "
-    "subscription models, respectively?'\n"
+    "Q: 'Who is the spouse of the director of Jurassic Park?'\n"
     "Sub-questions:\n"
-    "- 'Does the TechCrunch article on software companies report an increase in revenue "
-    "related to payment models?'\n"
-    "- 'Does the Hacker News article on The Epoch Times report an increase in revenue "
-    "related to subscription models?'\n"
+    "- 'Who directed Jurassic Park?'\n"
+    "- 'Who is the spouse of that director?'\n"
+    "\n"
+    "Q: 'What is the population of the city where the company that makes the iPhone is "
+    "headquartered?'\n"
+    "Sub-questions:\n"
+    "- 'Which company makes the iPhone?'\n"
+    "- 'In which city is that company headquartered?'\n"
+    "- 'What is the population of that city?'\n"
     "\n"
     "Q: 'Who is the individual associated with the cryptocurrency industry facing a "
     "criminal trial on fraud and conspiracy charges?'\n"
     "Sub-questions: [] (already single-hop)\n"
     "\n"
-    "Q: 'Which article published earlier, the TechCrunch piece on Pixel 8 or The Verge "
-    "piece on Spotify, also mentions layoffs?'\n"
+    "Q: 'Do the TechCrunch article on software companies and the Hacker News article on "
+    "The Epoch Times both report an increase in revenue?'\n"
     "Sub-questions:\n"
-    "- 'When was the TechCrunch article on Pixel 8 published?'\n"
-    "- 'When was The Verge article on Spotify published?'\n"
-    "- 'Does the TechCrunch article on Pixel 8 mention layoffs?'\n"
-    "- 'Does The Verge article on Spotify mention layoffs?'\n"
-    "\n"
-    "Q: 'According to the Sporting News report and the CBSSports.com report, which team "
-    "won the matchup discussed?'\n"
-    "Sub-questions:\n"
-    "- 'Which team did the Sporting News report say won the matchup?'\n"
-    "- 'Which team did the CBSSports.com report say won the matchup?'"
+    "- 'Does the TechCrunch article on software companies report an increase in revenue?'\n"
+    "- 'Does the Hacker News article on The Epoch Times report an increase in revenue?'"
 )
 
 MAX_SUBQUESTIONS = 4
@@ -109,6 +109,7 @@ def _decompose(query: str) -> tuple[list[str], int, int, float]:
     tout = int(getattr(usage, "completion_tokens", 0) or 0) if usage else 0
     cost = float((getattr(raw, "_hidden_params", None) or {}).get("response_cost") or 0.0)
     subs = [s.strip() for s in decomp.subquestions if s and s.strip()][:MAX_SUBQUESTIONS]
+    trace_event("decompose", subquestions=subs)
     return subs, tin, tout, cost
 
 

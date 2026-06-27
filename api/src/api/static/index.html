@@ -51,6 +51,37 @@
     .muted { color:var(--muted); }
     details { margin-top:12px; }
     details summary { cursor:pointer; color:var(--muted); font-weight:600; }
+    .run-controls { display:flex; gap:16px; align-items:center; margin:10px 0; flex-wrap:wrap; }
+    .run-controls label { font-weight:400; margin:0; display:flex; align-items:center; gap:6px; }
+    .run-controls select { width:auto; }
+    .run-card { border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:10px 0; }
+    .run-card.ok { border-left:3px solid var(--ok); }
+    .run-card.bad { border-left:3px solid var(--bad); }
+    .run-head { display:flex; align-items:center; gap:10px; margin-bottom:8px; font-size:12px; color:var(--muted); }
+    .run-head .sys { font-weight:700; color:var(--fg); font-size:13px; }
+    .qa-row { display:grid; grid-template-columns:72px 1fr; gap:12px; padding:6px 0; }
+    .qa-row + .qa-row { border-top:1px dashed var(--line); }
+    .qa-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted); padding-top:2px; }
+    .qa-text { white-space:pre-wrap; word-break:break-word; }
+    .qa-text.gold { color:var(--ok); font-weight:600; }
+    .qa-text.pred-bad { color:var(--bad); }
+    .trace { margin-top:18px; border-left:3px solid var(--accent); padding-left:16px; }
+    .trace > .tstep-h { font-size:15px; margin-bottom:12px; }
+    .tstep { margin:0 0 16px; }
+    .tstep-h { font-weight:700; font-size:13px; margin-bottom:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .chip { display:inline-block; background:var(--code); border:1px solid var(--line); border-radius:12px; padding:3px 10px; margin:3px 4px 0 0; font-size:12px; }
+    .route { padding:6px 10px; border-radius:6px; font-size:13px; font-weight:600; display:inline-block; }
+    .route.search { background:#fff3e0; color:#bf360c; }
+    .route.answer { background:#dafbe1; color:var(--ok); }
+    .rr-card { padding:8px 10px; border:1px solid var(--line); border-radius:6px; margin:6px 0; }
+    .rr-top { display:flex; align-items:center; gap:8px; font-size:12px; margin-bottom:3px; }
+    .rr-rank { font-weight:700; color:var(--accent); }
+    .rr-move { font-size:11px; padding:1px 7px; border-radius:8px; font-weight:600; white-space:nowrap; }
+    .rr-move.up { background:#dafbe1; color:var(--ok); }
+    .rr-move.down { background:#ffebe9; color:var(--bad); }
+    .rr-move.same { background:var(--code); color:var(--muted); }
+    .rr-meta { font-family:monospace; font-size:11px; color:var(--muted); margin-left:auto; }
+    .rr-text { font-size:12px; white-space:pre-wrap; word-break:break-word; }
   </style>
 </head>
 <body>
@@ -77,6 +108,7 @@
         <label><input type="radio" name="sys" value="F"> F — decomposition</label>
         <label><input type="radio" name="sys" value="F-tuned"> F-tuned — decomposition + CoT + source-aware retrieval</label>
       </div>
+      <p style="margin:6px 0"><label style="font-weight:400;cursor:pointer"><input type="checkbox" id="trace-toggle" checked> 🔬 Glass-box trace — show decomposition, retrieval, rerank reordering &amp; fusion</label></p>
       <label>Query</label>
       <textarea id="query" placeholder="e.g. Which company that Bloomberg covered in 2023 also issued a Q4 earnings warning?"></textarea>
       <p><button class="primary" id="ask-btn">Ask</button>
@@ -128,7 +160,7 @@
         const r = await fetch('/api/ask', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({system, query})
+          body: JSON.stringify({system, query, trace: document.getElementById('trace-toggle').checked})
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
@@ -145,7 +177,7 @@
       const chunks = d.retrieved_chunks.map(c =>
         `<div class="chunk"><div class="cid">${escape(c.id)}</div>${escape(c.text)}</div>`
       ).join('') || '<p class="muted">No chunks retrieved.</p>';
-      return `
+      const result = `
         <div class="result">
           <strong>Answer</strong>
           <div class="answer">${escape(d.answer || '')}</div>
@@ -155,8 +187,55 @@
             <div><strong>${d.tokens_in}/${d.tokens_out}</strong>tokens in/out</div>
             <div><strong>$${(d.cost_usd || 0).toFixed(6)}</strong>cost</div>
           </div>
-          <details><summary>Retrieved chunks (${d.retrieved_chunks.length})</summary>${chunks}</details>
+          <details><summary>Final answer context (${d.retrieved_chunks.length} chunks)</summary>${chunks}</details>
         </div>`;
+      return result + renderTrace(d.trace || []);
+    }
+
+    function renderTrace(trace) {
+      if (!trace.length) return '';
+      const move = (h) => {
+        if (h.hybrid_rank == null) return '<span class="rr-move same">·</span>';
+        if (h.hybrid_rank > h.rank) return `<span class="rr-move up">↑ from #${h.hybrid_rank}</span>`;
+        if (h.hybrid_rank < h.rank) return `<span class="rr-move down">↓ from #${h.hybrid_rank}</span>`;
+        return '<span class="rr-move same">= unchanged</span>';
+      };
+      const steps = trace.map(ev => {
+        if (ev.kind === 'decompose') {
+          const subs = ev.subquestions || [];
+          const body = subs.length
+            ? subs.map(s => `<span class="chip">${escape(s)}</span>`).join('')
+            : '<span class="muted">single-hop — no decomposition</span>';
+          return `<div class="tstep"><div class="tstep-h">🔱 Decomposition (${subs.length})</div>${body}</div>`;
+        }
+        if (ev.kind === 'route') {
+          const cls = ev.action === 'search' ? 'search' : 'answer';
+          const lbl = ev.action === 'search'
+            ? `🔎 SEARCH → "${escape(ev.query || '')}"`
+            : `✅ ANSWER${ev.forced ? ' (step budget reached)' : ''}`;
+          return `<div class="tstep"><div class="route ${cls}">Step ${ev.step}: ${lbl}</div></div>`;
+        }
+        if (ev.kind === 'retrieve') {
+          const rr = (ev.reranked || []).map(h => `
+            <div class="rr-card">
+              <div class="rr-top"><span class="rr-rank">#${h.rank}</span>${move(h)}
+                <span class="rr-meta">${escape(h.source || '?')} · rerank ${h.score}</span></div>
+              <div class="rr-text">${escape(h.text || '')}</div>
+            </div>`).join('');
+          const pool = (ev.hybrid || []).map(h => `
+            <div class="rr-card"><div class="rr-top"><span class="rr-rank">#${h.rank}</span>
+              <span class="rr-meta">${escape(h.source || '?')} · RRF ${h.score}</span></div>
+              <div class="rr-text">${escape((h.text || '').slice(0, 140))}</div></div>`).join('');
+          return `<div class="tstep">
+            <div class="tstep-h">🔍 Retrieve <span class="muted">"${escape(ev.query || '')}"</span> <span class="chip">${escape(ev.mode || '')}</span></div>
+            <div class="muted" style="font-size:11px;margin:0 0 4px">cross-encoder reranked the pool → top ${(ev.reranked || []).length}:</div>
+            ${rr}
+            <details><summary>hybrid pool — ${(ev.hybrid || []).length} candidates (pre-rerank)</summary>${pool}</details>
+          </div>`;
+        }
+        return '';
+      }).join('');
+      return `<div class="trace"><div class="tstep-h">🔬 Glass-box trace — how the answer was built</div>${steps}</div>`;
     }
 
     // --- Data ---
@@ -251,23 +330,73 @@
           <td>${num(t.accuracy)}</td><td>${num(t.accuracy_exact)}</td><td>${num(t.token_f1)}</td><td>${num(t.crag_score)}</td>
         </tr>`).join('')}</tbody></table>` : '';
 
+      const systems = [...new Set(rr.map(r => r.system))];
       const runsHtml = rr.length ? `
-        <h3>Runs (first ${rr.length})</h3>
-        <table><thead><tr>
-          <th>Sys</th><th>Query</th><th>Answer</th><th>✓</th><th>Judge</th><th>Steps</th><th>$</th><th>ms</th>
-        </tr></thead><tbody>${rr.map(r => `<tr>
-          <td>${r.system}</td>
-          <td title="${escape(r.query)}">${escape((r.query || '').slice(0, 60))}…</td>
-          <td title="gold: ${escape(r.ground_truth || '')}">${escape((r.answer || '').slice(0, 60))}${r.answer && r.answer.length > 60 ? '…' : ''}</td>
-          <td>${r.is_correct === true ? '<span class="pill ok">✓</span>'
-                : r.is_correct === false ? '<span class="pill bad">✗</span>' : '—'}</td>
-          <td>${escape(r.llm_judge_label || '—')}</td>
-          <td>${r.n_steps ?? '—'}</td>
-          <td>$${num(r.cost_usd, 4)}</td>
-          <td>${r.latency_ms ?? '—'}</td>
-        </tr>`).join('')}</tbody></table>` : '<p class="muted">No runs.</p>';
+        <h3>Runs — questions, answers &amp; gold (${rr.length})</h3>
+        <div class="run-controls">
+          <label>System
+            <select id="run-sys-filter" onchange="renderRuns()">
+              <option value="all">all</option>
+              ${systems.map(s => `<option value="${escape(s)}">${escape(s)}</option>`).join('')}
+            </select>
+          </label>
+          <label><input type="checkbox" id="run-only-incorrect" onchange="renderRuns()"> only incorrect</label>
+          <span class="muted" id="runs-count"></span>
+        </div>
+        <div id="runs-list"></div>` : '<p class="muted">No runs.</p>';
 
       detail.innerHTML = configHtml + metricsHtml + byTypeHtml + runsHtml;
+      window.CURRENT_EXP = id;
+      window.RUNS = rr;
+      if (rr.length) renderRuns();
+    }
+
+    function renderRuns() {
+      const runs = window.RUNS || [];
+      const sysVal = (document.getElementById('run-sys-filter') || {}).value || 'all';
+      const badOnly = (document.getElementById('run-only-incorrect') || {}).checked || false;
+      let filtered = runs;
+      if (sysVal !== 'all') filtered = filtered.filter(r => r.system === sysVal);
+      if (badOnly) filtered = filtered.filter(r => r.is_correct === false);
+      const cnt = document.getElementById('runs-count');
+      if (cnt) cnt.textContent = `showing ${filtered.length} of ${runs.length}`;
+      const list = document.getElementById('runs-list');
+      if (!list) return;
+      list.innerHTML = filtered.length ? filtered.map(r => {
+        const cls = r.is_correct === true ? 'ok' : r.is_correct === false ? 'bad' : '';
+        const pill = r.is_correct === true ? '<span class="pill ok">✓ correct</span>'
+                   : r.is_correct === false ? '<span class="pill bad">✗ wrong</span>'
+                   : '<span class="pill">— no answer</span>';
+        const predCls = r.is_correct === false ? 'pred-bad' : '';
+        return `<div class="run-card ${cls}">
+          <div class="run-head">
+            <span class="sys">${escape(r.system)}</span>
+            ${pill}
+            <span style="margin-left:auto">qid ${r.query_id ?? r.id} · ${r.n_steps ?? '—'} steps · $${num(r.cost_usd, 4)} · ${r.latency_ms ?? '—'}ms${r.llm_judge_label ? ' · judge: ' + escape(r.llm_judge_label) : ''}</span>
+          </div>
+          <div class="qa-row"><span class="qa-label">Question</span><span class="qa-text">${escape(r.query || '')}</span></div>
+          <div class="qa-row"><span class="qa-label">Answer</span><span class="qa-text ${predCls}">${escape(r.answer || '(no answer produced)')}</span></div>
+          <div class="qa-row"><span class="qa-label">Gold</span><span class="qa-text gold">${escape(r.ground_truth || '—')}</span></div>
+          <div style="margin-top:8px"><button class="secondary" onclick="replayRun(${r.id}, this)">🔬 Replay with trace</button></div>
+          <div id="trace-${r.id}"></div>
+        </div>`;
+      }).join('') : '<p class="muted">No matching runs.</p>';
+    }
+
+    async function replayRun(runId, btn) {
+      const out = document.getElementById('trace-' + runId);
+      btn.disabled = true; const orig = btn.textContent; btn.textContent = 'replaying…';
+      out.innerHTML = '<p class="muted">re-running this query with trace capture…</p>';
+      try {
+        const r = await fetch(`/api/experiments/${window.CURRENT_EXP}/runs/${runId}/replay`, {method: 'POST'});
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+        out.innerHTML = renderTrace(d.trace || []) || '<p class="muted">No trace events recorded.</p>';
+      } catch (e) {
+        out.innerHTML = `<div class="error">${e.message}</div>`;
+      } finally {
+        btn.disabled = false; btn.textContent = orig;
+      }
     }
 
     // --- Helpers ---

@@ -34,7 +34,7 @@ def _load_local() -> CrossEncoder:
 @lru_cache(maxsize=1)
 def _bedrock_client():
     import boto3
-    return boto3.client("bedrock-agent-runtime", region_name=settings.aws_region)
+    return boto3.client("bedrock-agent-runtime", region_name=settings.bedrock_rerank_region)
 
 
 def _rerank_local(query: str, candidates: list[dict], top_k: int) -> list[dict]:
@@ -51,7 +51,7 @@ def _rerank_bedrock_cohere(
     """Cohere Rerank 3.5 via Bedrock Agent Runtime."""
     client = _bedrock_client()
     model_arn = (
-        f"arn:aws:bedrock:{settings.aws_region}::foundation-model/"
+        f"arn:aws:bedrock:{settings.bedrock_rerank_region}::foundation-model/"
         f"{settings.bedrock_rerank_model_id}"
     )
     sources = [

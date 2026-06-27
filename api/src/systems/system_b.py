@@ -2,23 +2,22 @@
 
 State machine: RETRIEVE -> ROUTE -> (REFORMULATE -> RETRIEVE) or ANSWER
 
-Each iteration does TWO LLM calls:
-  1. A tiny RouteDecision call (one-field schema: action ∈ {reformulate, answer}).
-  2. An execute call — either a free-text `generate()` returning the reformulated
-     query, or a free-text `generate()` returning the final answer using
-     System A's ANSWER_SYSTEM_PROMPT.
+Each non-final iteration is ONE free-text LLM call that both decides and acts:
+it replies either `ANSWER` (synthesise now) or `SEARCH: <query>` (the next
+search query). When it answers — or on the forced final step — a dedicated
+`generate()` with System A's ANSWER_SYSTEM_PROMPT produces the final response so
+answer quality matches A/F.
 
-The split exists to decouple routing from content generation. The previous
-single-call design (one instructor invocation populating action + reformulated_query
-+ final_answer conditionally) was reliable on Anthropic but fragile on Bedrock
-Nova / Qwen3 — those providers either left fields empty or refused to populate
-the multi-field schema at all. With Option-1 two-call routing each LLM call has
-a trivial single-job schema, robust across providers. Cost is roughly ~2× the
-old design per step but makes the orchestration story portable across model
-classes.
+This replaces an earlier (RouteDecision via `instructor`) + (execute) pair. The
+typed one-field schema was assumed robust across providers but had never been
+run on Nova until exp25, where it failed ~78% of the time: Nova Lite emits the
+decision as prose, not the JSON `instructor` parses, so `action` came back
+missing and the whole run errored. Free-text keyword routing is robust on
+Nova/Qwen3/Anthropic alike and roughly halves B's LLM calls (the route step no
+longer needs a separate execute call to write the query).
 
-Evidence ACCUMULATES across iterations (IRCoT-style union): route, reformulate
-and answer all operate on the RRF-fused merge of every iteration's ranked
+Evidence ACCUMULATES across iterations (IRCoT-style union): both the route and
+answer calls operate on the RRF-fused merge of every iteration's ranked
 list, capped at FUSED_ANSWER_TOP_K — the same fusion + budget System F applies
 to its sub-question lists. Without this, a chunk found at step 1 is invisible
 by step 3 and the agent re-hunts evidence it already holds. A one-step run
@@ -32,13 +31,14 @@ final generate() saw); `all_retrieved_chunk_ids` is the raw union of every
 iteration's hits.
 """
 import logging
+import re
 import time
 
 from langgraph.graph import StateGraph, END
 from typing_extensions import TypedDict
 
 from src.config import settings
-from src.llm.client import generate, make_instructor_client
+from src.llm.client import generate
 from src.retrieval.retrieve import (
     FUSED_ANSWER_TOP_K,
     format_context,
@@ -46,39 +46,26 @@ from src.retrieval.retrieve import (
     rrf_fuse,
 )
 from src.systems.base import RunResult
-from src.systems.schemas import AgentAction, RouteDecision
 from src.systems.system_a import ANSWER_SYSTEM_PROMPT
+from src.trace import trace_event
 
 logger = logging.getLogger("rag.system_b")
 
 
 ROUTE_SYSTEM_PROMPT = (
-    "You are an iterative research assistant answering multi-hop questions over "
-    "a news corpus.\n"
+    "You are an iterative research assistant answering a multi-hop question over "
+    "a news corpus. You are given the ORIGINAL question and the EVIDENCE gathered "
+    "so far — the best-ranked chunks fused across every search run so far.\n"
     "\n"
-    "Each step you receive:\n"
-    "- The ORIGINAL multi-hop question.\n"
-    "- The EVIDENCE GATHERED SO FAR: the best-ranked chunks fused across every "
-    "search you have run so far, not just the latest one.\n"
-    "- How many steps you have used out of the budget.\n"
+    "Reply in EXACTLY one of these two forms, on a single line:\n"
+    "  ANSWER\n"
+    "      - the gathered evidence already contains every fact needed.\n"
+    "  SEARCH: <query>\n"
+    "      - a fact is still missing. Write ONE new search query naming the "
+    "specific missing entity, date, or relationship, with distinct keywords from "
+    "earlier searches (no trivial paraphrase).\n"
     "\n"
-    "Choose exactly ONE action:\n"
-    "  - ANSWER: the gathered evidence contains every fact needed.\n"
-    "  - REFORMULATE: at least one fact is still missing.\n"
-    "\n"
-    "Hard rules:\n"
-    "- On the final allowed step (n == budget) you MUST ANSWER.\n"
-    "- Do NOT produce the answer or query in this call — only the action."
-)
-
-REFORMULATE_SYSTEM_PROMPT = (
-    "You write a NEW search query that targets the missing piece of evidence.\n"
-    "\n"
-    "Rules:\n"
-    "- Name the specific missing entity, date, or relationship rather than rephrasing.\n"
-    "- Use distinct keywords from the original query — avoid trivial paraphrase.\n"
-    "- Decompose into ONE sub-question if the original has multiple parts.\n"
-    "- Reply with just the query — no preamble, no quotes."
+    "Reply with ONLY 'ANSWER' or 'SEARCH: <query>' — no other text."
 )
 
 
@@ -102,91 +89,70 @@ def _retrieve_node(state: AgentState) -> AgentState:
     return state
 
 
+def _parse_route(text: str) -> tuple[str, str | None]:
+    """Parse the free-text route reply into (action, query).
+
+    A 'SEARCH: <query>' line means reformulate with that query; anything else
+    (including a bare 'ANSWER') falls through to answering from current evidence
+    — a safe default that cannot stall the step-bounded loop. Robust where the
+    old instructor JSON schema failed: Nova/Qwen emit the keyword as plain text."""
+    m = re.search(r"search\s*:\s*(.+)", text, re.IGNORECASE)
+    if m:
+        q = m.group(1).strip().splitlines()[0].strip().strip("\"'")
+        if q:
+            return "reformulate", q
+    return "answer", None
+
+
 def _route_node(state: AgentState) -> AgentState:
-    """Pick ANSWER or REFORMULATE via a tiny one-field instructor call.
+    """One free-text call decides the next move (and supplies the new query when
+    searching); a dedicated ANSWER_SYSTEM_PROMPT call runs only when answering.
 
-    Then execute the chosen route in a follow-up `generate()` call so the
-    content (reformulated query or final answer) comes from a focused, free-text
-    response rather than a conditional field on a multi-field schema.
-
-    Both calls see the same fused working memory the answer would use — judging
-    sufficiency on only the latest batch would re-request facts already held.
+    Both calls see the same RRF-fused working memory — judging sufficiency on
+    only the latest batch would re-request facts already held. On the forced
+    final step the route call is skipped (the outcome is known) and we answer.
     """
-    client = make_instructor_client()
     working = rrf_fuse(state["iteration_hits"])[:FUSED_ANSWER_TOP_K]
     context = format_context(working)
-    user_prompt = (
-        f"Original question: {state['original_query']}\n\n"
-        f"Evidence gathered so far:\n{context}\n\n"
-        f"Steps taken: {state['n_steps']}/{state['max_agent_steps']}"
-    )
+    state["answer_chunks"] = working
+    forced = state["n_steps"] >= state["max_agent_steps"]
 
-    decision, raw = client.chat.completions.create_with_completion(
-        model=settings.litellm_model,
-        response_model=RouteDecision,
-        aws_region_name=settings.aws_region,
-        temperature=0,
-        messages=[
+    if forced:
+        action, query = "answer", None
+    else:
+        route = generate(messages=[
             {"role": "system", "content": ROUTE_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-    _accumulate_cost(state, raw)
+            {"role": "user", "content": (
+                f"Original question: {state['original_query']}\n\n"
+                f"Evidence gathered so far:\n{context}\n\n"
+                f"Steps taken: {state['n_steps']}/{state['max_agent_steps']}"
+            )},
+        ])
+        _accum(state, route)
+        action, query = _parse_route(route["content"] or "")
 
-    forced_answer = state["n_steps"] >= state["max_agent_steps"]
-    if decision.action == AgentAction.ANSWER or forced_answer:
+    if action == "reformulate":
+        state["current_query"] = query or state["current_query"]
+        trace_event("route", step=state["n_steps"], action="search", query=state["current_query"])
+        logger.debug("B step %s/%s -> SEARCH %r", state["n_steps"], state["max_agent_steps"], state["current_query"])
+    else:
         synth = generate(messages=[
             {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
             {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {state['original_query']}"},
         ])
+        _accum(state, synth)
         state["final_answer"] = synth["content"] or "No answer produced."
-        state["answer_chunks"] = working
-        state["tokens_in"] += synth["tokens_in"]
-        state["tokens_out"] += synth["tokens_out"]
-        state["cost_usd"] += synth["cost_usd"]
-        logger.debug("B step %s/%s -> ANSWER%s", state["n_steps"], state["max_agent_steps"],
-                     " (forced)" if forced_answer and decision.action != AgentAction.ANSWER else "")
-    else:
-        ref = generate(messages=[
-            {"role": "system", "content": REFORMULATE_SYSTEM_PROMPT},
-            {"role": "user", "content": (
-                f"Original question: {state['original_query']}\n\n"
-                f"Evidence gathered so far (insufficient):\n{context}\n\n"
-                "Write the new search query:"
-            )},
-        ])
-        state["current_query"] = (ref["content"] or "").strip() or state["current_query"]
-        state["tokens_in"] += ref["tokens_in"]
-        state["tokens_out"] += ref["tokens_out"]
-        state["cost_usd"] += ref["cost_usd"]
-        logger.debug("B step %s/%s -> REFORMULATE %r", state["n_steps"], state["max_agent_steps"], state["current_query"])
+        trace_event("route", step=state["n_steps"], action="answer", forced=forced)
+        logger.debug("B step %s/%s -> ANSWER%s", state["n_steps"], state["max_agent_steps"], " (forced)" if forced else "")
 
     return state
 
 
-def _accumulate_cost(state: AgentState, raw) -> None:
-    """Pull usage + cost from an instructor `raw` response and accumulate.
-
-    Falls back to litellm's pricing map when the provider's response omits
-    response_cost (the same gap that previously left B's $/correct reading 0)."""
-    usage = getattr(raw, "usage", None)
-    tin = int(getattr(usage, "prompt_tokens", 0) or 0) if usage is not None else 0
-    tout = int(getattr(usage, "completion_tokens", 0) or 0) if usage is not None else 0
-    state["tokens_in"] += tin
-    state["tokens_out"] += tout
-
-    hidden = getattr(raw, "_hidden_params", None) or {}
-    cost = float(hidden.get("response_cost") or 0.0)
-    if not cost and (tin or tout):
-        try:
-            from litellm import cost_per_token
-            pc, cc = cost_per_token(
-                model=settings.litellm_model, prompt_tokens=tin, completion_tokens=tout
-            )
-            cost = float(pc) + float(cc)
-        except Exception:
-            cost = 0.0
-    state["cost_usd"] += cost
+def _accum(state: AgentState, gen: dict) -> None:
+    """Accumulate a `generate()` call's tokens + cost into the agent state."""
+    state["tokens_in"] += gen["tokens_in"]
+    state["tokens_out"] += gen["tokens_out"]
+    state["cost_usd"] += gen["cost_usd"]
 
 
 def _route(state: AgentState) -> str:

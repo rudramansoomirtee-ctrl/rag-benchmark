@@ -17,6 +17,7 @@ _instances: dict = {}
 class AskRequest(BaseModel):
     system: str
     query: str
+    trace: bool = False
 
 
 def _get_system(name: str):
@@ -39,9 +40,16 @@ def _fetch_chunk_text(ids: list[str]) -> list[dict]:
 
 @router.post("/ask")
 def ask(req: AskRequest):
+    from src.trace import capture
+
     system = _get_system(req.system)
+    events: list = []
     try:
-        result = system.answer(req.query)
+        if req.trace:
+            with capture() as events:
+                result = system.answer(req.query)
+        else:
+            result = system.answer(req.query)
     except Exception as e:
         raise HTTPException(500, f"{type(e).__name__}: {e}")
 
@@ -53,4 +61,5 @@ def ask(req: AskRequest):
         "tokens_out": result.tokens_out,
         "latency_ms": result.latency_ms,
         "cost_usd": result.cost_usd,
+        "trace": events,
     }

@@ -3,7 +3,7 @@
 Experiment creation stays in the CLI — a full run takes hours and shouldn't
 be tied to an HTTP request lifecycle.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from src.db.models import Experiment, Metric, Query, Run
@@ -47,6 +47,7 @@ def runs(exp_id: int, limit: int = 100):
         return [
             {
                 "id": r.id,
+                "query_id": r.query_id,
                 "system": r.system,
                 "query": q.query_text,
                 "ground_truth": q.ground_truth,
@@ -65,6 +66,55 @@ def runs(exp_id: int, limit: int = 100):
         session.close()
 
 
+_DATASET_INDEX = {"multihop": "rag-chunks", "musique": "rag-chunks-musique"}
+
+
+@router.post("/experiments/{exp_id}/runs/{run_id}/replay")
+def replay_run(exp_id: int, run_id: int):
+    """Re-execute one run's (system, query) with glass-box trace capture, against
+    that run's dataset index, and return the full trace. Lets the Experiments UI
+    replay any historical run and show its pipeline (decomposition / iteration /
+    retrieval / rerank reordering). Deterministic (temperature=0), so it faithfully
+    reproduces the original run."""
+    from src.config import settings
+    from src.evaluation.runner import SYSTEM_REGISTRY
+    from src.trace import capture
+
+    session = get_session()
+    try:
+        row = session.execute(
+            select(Run, Query).join(Query, Run.query_id == Query.id)
+            .where(Run.id == run_id, Run.experiment_id == exp_id)
+        ).first()
+    finally:
+        session.close()
+    if not row:
+        raise HTTPException(404, "run not found")
+    run, q = row
+    if run.system not in SYSTEM_REGISTRY:
+        raise HTTPException(400, f"cannot replay system {run.system}")
+
+    # Point retrieval at the run's dataset index for the duration of the replay.
+    # Single-user tool: a brief global swap (restored in finally) is acceptable.
+    prev = settings.opensearch_index
+    settings.opensearch_index = _DATASET_INDEX.get(q.dataset, prev)
+    try:
+        with capture() as events:
+            result = SYSTEM_REGISTRY[run.system]().answer(q.query_text)
+    except Exception as e:
+        raise HTTPException(500, f"{type(e).__name__}: {e}")
+    finally:
+        settings.opensearch_index = prev
+
+    return {
+        "system": run.system,
+        "query": q.query_text,
+        "ground_truth": q.ground_truth,
+        "answer": result.answer,
+        "trace": events,
+    }
+
+
 @router.get("/experiments/{exp_id}/by-type")
 def by_type(exp_id: int):
     """Per-question-type accuracy breakdown (inference/comparison/temporal/null).
@@ -73,8 +123,11 @@ def by_type(exp_id: int):
     as the `metrics-by-type` CLI, surfaced for the SPA.
     """
     from collections import defaultdict
-    from src.evaluation.metrics import exact_match, token_f1
+    from src.evaluation.metrics import exact_match, token_f1, _post_marker
     from src.evaluation.judge import CRAG_SCORE
+
+    def _cands(qq):
+        return [c for c in [qq.ground_truth] + ((qq.query_metadata or {}).get("answer_aliases") or []) if c]
 
     session = get_session()
     try:
@@ -89,8 +142,10 @@ def by_type(exp_id: int):
         for (system, qt), pairs in sorted(grouped.items()):
             n = len(pairs)
             correct = sum(1 for r, _ in pairs if r.is_correct)
-            exact = sum(exact_match(r.answer or "", q.ground_truth or "") for r, q in pairs) / n if n else 0.0
-            tf1 = sum(token_f1(r.answer or "", q.ground_truth or "") for r, q in pairs) / n if n else 0.0
+            exact = sum(max((float(exact_match(_post_marker(r.answer or ""), c)) for c in _cands(q)), default=0.0)
+                        for r, q in pairs) / n if n else 0.0
+            tf1 = sum(max((token_f1(r.answer or "", c) for c in _cands(q)), default=0.0)
+                      for r, q in pairs) / n if n else 0.0
             judged = [r.llm_judge_label for r, _ in pairs if r.llm_judge_label]
             crag = (sum(CRAG_SCORE.get(lbl, 0.0) for lbl in judged) / len(judged)) if judged else None
             out.append({

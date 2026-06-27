@@ -21,7 +21,12 @@ ANSWER_SYSTEM_PROMPT = (
     "Connect the dots explicitly.\n"
     "3. Cite the chunk IDs in square brackets after each claim, e.g. "
     "'X joined the board in 2023 [chunk-7], replacing Y [chunk-12].'\n"
-    "4. Be direct and concise. No hedging openers like 'Based on the context'."
+    "4. Be direct and concise. No hedging openers like 'Based on the context'.\n"
+    "5. On a new final line, end with 'Final answer: ' followed by the shortest "
+    "exact answer only (an entity, number, date, or yes/no) — no citations, no "
+    "explanation. If the context lacks the answer, write 'Final answer: The "
+    "provided context does not contain the answer.' Only the text after the last "
+    "'Final answer:' is scored."
 )
 
 

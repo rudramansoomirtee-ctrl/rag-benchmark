@@ -42,8 +42,8 @@ def _setup():
 
 
 @app.command()
-def ingest_dataset(name: str):
-    """Load a dataset (multihop | ragtruth) into Postgres."""
+def ingest_dataset(name: str, limit: int = typer.Option(None, "--limit", help="Cap items ingested (e.g. MuSiQue questions) for a pilot.")):
+    """Load a dataset (multihop | ragtruth | musique) into Postgres."""
     if name == "multihop":
         from src.datasets.multihop import ingest
         n_q, n_c = ingest()
@@ -52,6 +52,10 @@ def ingest_dataset(name: str):
         from src.datasets.ragtruth import ingest
         n = ingest()
         console.print(f"[green]ragtruth:[/green] {n} rows")
+    elif name == "musique":
+        from src.datasets.musique import ingest
+        n_q, n_c = ingest(limit=limit)
+        console.print(f"[green]musique:[/green] {n_q} queries, {n_c} chunks")
     else:
         raise typer.BadParameter(f"unknown dataset: {name}")
 
@@ -74,6 +78,8 @@ def run_experiment(
     sample: int = typer.Option(None, "--sample", help="Defensible subset: random N, seeded and (by default) stratified by question type."),
     seed: int = typer.Option(42, "--seed", help="RNG seed for --sample (reproducible; recorded in the experiment config)."),
     stratify: bool = typer.Option(True, "--stratify/--no-stratify", help="Stratify --sample by question_type."),
+    min_gold_articles: int = typer.Option(None, "--min-gold-articles", help="Hard subset: keep only queries needing >= N gold articles (hop-count proxy; excludes null queries)."),
+    query_ids: str = typer.Option(None, "--query-ids", help="Comma-separated query IDs to run (overrides --sample/--limit; e.g. re-testing failed queries)."),
 ):
     """Run the chosen systems over the eval queries. Resumable on failure.
 
@@ -91,8 +97,42 @@ def run_experiment(
         sample=sample,
         seed=seed,
         stratify=stratify,
+        min_gold_articles=min_gold_articles,
+        query_ids=[int(x) for x in query_ids.split(",")] if query_ids else None,
     )
     console.print(f"[green]experiment finished[/green] id={exp_id}")
+
+
+@app.command()
+def rescore(experiment: int = typer.Option(None, "--experiment", help="Re-score one experiment; omit to re-score ALL.")):
+    """Re-derive runs.is_correct from stored answer + gold using the CURRENT metric.
+
+    Run after changing the correctness metric (e.g. contains_match) so stored
+    is_correct — and the metrics computed from it — reflect the change. Idempotent,
+    no LLM calls. Failed runs (NULL answer) keep is_correct=NULL ("crash is wrong").
+    Re-run compute-metrics afterwards to refresh the metrics table.
+    """
+    from src.evaluation.metrics import contains_match
+
+    session = get_session()
+    try:
+        stmt = select(Run, Query).join(Query, Run.query_id == Query.id)
+        if experiment is not None:
+            stmt = stmt.where(Run.experiment_id == experiment)
+        rows = session.execute(stmt).all()
+        changed = 0
+        for r, q in rows:
+            if r.answer is None:
+                continue
+            new = contains_match(r.answer, q.ground_truth) if q.ground_truth else None
+            if new != r.is_correct:
+                r.is_correct = new
+                changed += 1
+        session.commit()
+        scope = f"experiment {experiment}" if experiment is not None else "ALL experiments"
+        console.print(f"[green]rescored[/green] {scope}: {len(rows)} runs, {changed} is_correct changed")
+    finally:
+        session.close()
 
 
 @app.command()

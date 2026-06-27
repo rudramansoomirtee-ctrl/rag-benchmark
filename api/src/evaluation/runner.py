@@ -22,7 +22,7 @@ from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeEl
 from src.config import settings
 from src.db.models import Chunk, Experiment, Query, Run
 from src.db.session import get_session
-from src.evaluation.metrics import exact_match, contains_match
+from src.evaluation.metrics import exact_match, contains_match, answer_match
 from src.systems.base import System, RunResult
 from src.systems.system_a import SystemA
 from src.systems.system_b import SystemB
@@ -113,6 +113,8 @@ def run_experiment(
     sample: int | None = None,
     seed: int = 42,
     stratify: bool = True,
+    min_gold_articles: int | None = None,
+    query_ids: list[int] | None = None,
 ) -> int:
     """Run all (system, dataset, query) combinations and persist to `runs`.
 
@@ -129,8 +131,19 @@ def run_experiment(
             select(Query).where(Query.dataset.in_(datasets), Query.split == split).order_by(Query.id)
         ).all()
 
+        # Hard-subset filter: keep only queries needing >= N gold articles (a hop-count
+        # proxy). Null queries (0 gold) are excluded — they don't test retrieval coverage.
+        # Applied before sampling so --sample draws from the hard subset.
+        if min_gold_articles:
+            queries = [q for q in queries if len(q.relevant_chunk_ids or []) >= min_gold_articles]
+
         selection: dict = {"method": "all", "n": len(queries)}
-        if sample:
+        if query_ids:
+            idset = set(query_ids)
+            queries = [q for q in queries if q.id in idset]
+            queries.sort(key=lambda q: q.id)
+            selection = {"method": "explicit_ids", "n": len(queries), "query_ids": [q.id for q in queries]}
+        elif sample:
             import random
             from collections import defaultdict
             rng = random.Random(seed)
@@ -166,8 +179,10 @@ def run_experiment(
                 "systems": systems,
                 "datasets": datasets,
                 "split": split,
+                "min_gold_articles": min_gold_articles,
                 "selection": selection,
                 "top_k": settings.top_k,
+                "fused_answer_top_k": settings.fused_answer_top_k,
                 "max_agent_steps": settings.max_agent_steps,
                 "agent_steps_by_system": {
                     s: settings.max_agent_steps for s in systems if s == "B"
@@ -182,6 +197,8 @@ def run_experiment(
                 "reranker_model": settings.reranker_model,
                 "rerank_provider": settings.rerank_provider,
                 "retrieval_pool": settings.retrieval_pool,
+                "retrieval_stratify_sources": settings.retrieval_stratify_sources,
+                "retrieval_semantic_only": settings.retrieval_semantic_only,
                 "corpus": _corpus_fingerprint(session, datasets),
             },
         )
@@ -244,9 +261,15 @@ def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> N
         session.commit()
         return
 
-    is_correct = (
-        contains_match(result.answer, q.ground_truth) if q.ground_truth else None
-    )
+    if not q.ground_truth:
+        is_correct = None
+    elif q.dataset == "musique":
+        # MuSiQue ships multiple acceptable surface forms; score against gold + aliases
+        # with bidirectional containment (committed terse answers like '140' ⊆ '140 mi').
+        golds = [q.ground_truth] + ((q.query_metadata or {}).get("answer_aliases") or [])
+        is_correct = answer_match(result.answer, golds)
+    else:
+        is_correct = contains_match(result.answer, q.ground_truth)
     # Systems that retrieve once leave all_retrieved_chunk_ids None → fall back to
     # the final context (for them the two are identical).
     all_retrieved = result.all_retrieved_chunk_ids or result.retrieved_chunk_ids

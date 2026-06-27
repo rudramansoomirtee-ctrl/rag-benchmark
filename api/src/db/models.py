@@ -72,6 +72,7 @@ class Run(Base):
     is_correct: Mapped[bool | None] = mapped_column(Boolean)        # primary: contains_match
     llm_judge_label: Mapped[str | None] = mapped_column(Text)       # secondary: CRAG rubric
     phoenix_trace_id: Mapped[str | None] = mapped_column(Text)
+    trace_json: Mapped[list | None] = mapped_column(JSONB)          # glass-box pipeline trace; populated only on --trace runs
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     experiment: Mapped["Experiment"] = relationship(back_populates="runs")

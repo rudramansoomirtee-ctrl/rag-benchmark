@@ -17,16 +17,105 @@ across the orchestration comparison.
 """
 from src.config import settings
 from src.retrieval.embeddings import embed_one
-from src.retrieval.opensearch_client import hybrid_search
+from src.retrieval.opensearch_client import hybrid_search, knn_search
 from src.retrieval.reranker import rerank
+from src.trace import trace_active, trace_event
+
+
+# Stratification over-fetches this multiple of `retrieval_pool` from the hybrid
+# stage, then trims back to a source-diverse pool — so minority-source chunks
+# ranked just outside the normal pool still get a chance at the reranker.
+STRATIFY_FANOUT = 3
+
+
+def _stratify_by_source(hits: list[dict], pool_size: int) -> list[dict]:
+    """Guarantee each source's top hit enters the rerank pool, then fill by relevance.
+
+    A hybrid pool dominated by one publisher starves minority sources before the
+    reranker ever sees them — the root cause behind comparison queries that name
+    two publishers (one floods the pool, the other never appears). This pulls the
+    top chunk of each source (in order of first appearance, so relevance order is
+    respected) as a diversity floor, then fills the remaining slots strictly by
+    the original fused relevance order. Source-agnostic: no query parsing, so it
+    applies uniformly to every system and every query.
+    """
+    from collections import OrderedDict
+
+    by_source: "OrderedDict[str, list[dict]]" = OrderedDict()
+    for h in hits:
+        src = (h.get("metadata") or {}).get("source") or "?"
+        by_source.setdefault(src, []).append(h)
+
+    out: list[dict] = []
+    taken: set[str] = set()
+    for group in by_source.values():
+        if len(out) >= pool_size:
+            break
+        out.append(group[0])
+        taken.add(group[0]["chunk_id"])
+    for h in hits:
+        if len(out) >= pool_size:
+            break
+        if h["chunk_id"] in taken:
+            continue
+        out.append(h)
+        taken.add(h["chunk_id"])
+    return out
+
+
+def _trace_retrieve(query: str, pool: list[dict], reranked: list[dict], mode: str) -> None:
+    """Emit a glass-box trace event for one retrieval. No-op unless capturing
+    (so experiment runs are unaffected). Records the hybrid pool, the reranked
+    top-k, and each reranked hit's original hybrid rank so the UI can show how
+    the cross-encoder reordered the candidates."""
+    if not trace_active():
+        return
+
+    def _ser(hits: list[dict], score_key: str) -> list[dict]:
+        rows = []
+        for i, h in enumerate(hits[:12], start=1):
+            meta = h.get("metadata") or {}
+            rows.append({
+                "rank": i,
+                "id": h.get("chunk_id"),
+                "score": round(float(h.get(score_key) or 0.0), 4),
+                "source": meta.get("source"),
+                "title": meta.get("title"),
+                "text": (h.get("text") or "")[:240],
+            })
+        return rows
+
+    hybrid_rank = {h.get("chunk_id"): i for i, h in enumerate(pool, start=1)}
+    reranked_rows = _ser(reranked, "rerank_score")
+    for r in reranked_rows:
+        r["hybrid_rank"] = hybrid_rank.get(r["id"])
+    trace_event("retrieve", query=query, mode=mode,
+                hybrid=_ser(pool, "score"), reranked=reranked_rows)
 
 
 def retrieve(query: str, top_k: int | None = None) -> list[dict]:
-    """Hybrid first-stage retrieval followed by cross-encoder rerank."""
+    """Hybrid first-stage retrieval followed by cross-encoder rerank.
+
+    With `retrieval_semantic_only` on, this short-circuits to a naive dense-kNN-only
+    retriever (no BM25, RRF or rerank) for the weakened-retriever ablation. With
+    `retrieval_stratify_sources` on, the first-stage pool is over-fetched and
+    re-pooled to span sources (see `_stratify_by_source`) before the rerank; off,
+    it is the plain hybrid top-`retrieval_pool`.
+    """
     top_k = top_k or settings.top_k
     qvec = embed_one(query)
-    pool = hybrid_search(query, qvec, top_k=settings.retrieval_pool)
-    return rerank(query, pool, top_k=top_k)
+    if settings.retrieval_semantic_only:
+        out = knn_search(qvec, top_k=top_k)
+        _trace_retrieve(query, out, out, "semantic-only")
+        return out
+    if settings.retrieval_stratify_sources:
+        raw = hybrid_search(query, qvec, top_k=settings.retrieval_pool * STRATIFY_FANOUT)
+        pool = _stratify_by_source(raw, settings.retrieval_pool)
+    else:
+        pool = hybrid_search(query, qvec, top_k=settings.retrieval_pool)
+    reranked = rerank(query, pool, top_k=top_k)
+    _trace_retrieve(query, pool, reranked, "hybrid+rerank")
+    return reranked
 
 
 def retrieve_filtered(
@@ -49,10 +138,11 @@ def retrieve_filtered(
     return rerank(query, pool, top_k=top_k)
 
 
-# Answer-context budget for systems that fuse multiple ranked lists (B, F).
-# A single top_k=5 list passes through unchanged (a one-list fusion is the
-# identity), so a no-op B/F run degenerates to A's exact context.
-FUSED_ANSWER_TOP_K = 10
+# Answer-context budget for systems that fuse multiple ranked lists (B, F), read
+# from settings so it can be swept (budget-sensitivity ablations). A single list
+# passes through unchanged (one-list fusion is the identity), so a no-op B/F run
+# degenerates to A's exact context.
+FUSED_ANSWER_TOP_K = settings.fused_answer_top_k
 
 
 def rrf_fuse(ranked_lists: list[list[dict]], rrf_k: int = 60) -> list[dict]:

@@ -174,13 +174,28 @@ def _strip_entity_suffix(norm: str) -> str:
     return norm
 
 
+def _contains_phrase(haystack: str, needle: str) -> bool:
+    """Whole-word containment: `needle` must appear bounded by word boundaries.
+
+    Plain substring containment false-positives on short gold: gold 'No' matches
+    inside 'not'/'cannot'/'does not contain', so a *refusal* scored correct on a
+    yes/no question (qid 514/841). Word boundaries fix this (and the symmetric
+    'AI' inside 'trained' case). Both args are pre-normalized (lowercase,
+    punctuation-stripped, single-spaced), so \\b is well-defined over [a-z0-9 ]."""
+    if not needle:
+        return False
+    return re.search(r"\b" + re.escape(needle) + r"\b", haystack) is not None
+
+
 def contains_match(predicted: str, gold: str) -> bool:
     """Normalized containment: does the gold answer appear inside the prediction?
 
     PRIMARY correctness metric — the MultiHop-RAG paper (Tang & Yang 2024) scores
     a short factoid gold (yes/no, entity, before/after) by presence in the response.
 
-    Three layers of robustness on top of plain substring containment:
+    Containment is whole-word (word-boundary, not naive substring — see
+    `_contains_phrase`), so short gold like 'No' is not matched inside 'not'.
+    Three further layers of robustness:
       (1) Post-marker extraction — if the prediction has a 'Final answer:' marker,
           we score only what FOLLOWS the last marker. Stops CoT prompts from
           poisoning scoring by echoing gold-shaped tokens in their instructions
@@ -197,11 +212,36 @@ def contains_match(predicted: str, gold: str) -> bool:
     p, g = _normalize(p_text), _normalize(gold)
     if g in _REFUSAL_GOLD_NORMS:
         return any(pat in p for pat in _REFUSAL_PATTERNS)
-    if g in p:
+    if _contains_phrase(p, g):
         return True
     g_stripped = _strip_entity_suffix(g)
-    if g_stripped and g_stripped != g and g_stripped in p:
+    if g_stripped and g_stripped != g and _contains_phrase(p, g_stripped):
         return True
+    return False
+
+
+def answer_match(predicted: str, golds: list[str]) -> bool:
+    """Correct if the prediction matches the gold OR any of its aliases.
+
+    For datasets that ship multiple acceptable surface forms (MuSiQue's
+    `answer_aliases`). Beyond `contains_match` (gold ⊆ prediction, with the
+    refusal/entity-suffix layers), this also credits the *reverse* whole-word
+    containment — the committed answer ⊆ gold — so a correct-but-terser answer
+    still scores: 'Final answer: 140' vs gold '140 mi', '25,000' vs 'nearly
+    25,000', '92%' vs '92 percent', 'Paraguay' vs "Alfredo Stroessner's
+    Paraguay". Both directions are word-boundary matched, so genuinely different
+    answers (e.g. 'Epic Records' vs 'MGM Records') match in neither direction and
+    stay wrong. The committed span is taken post-'Final answer:' marker.
+    """
+    p = _normalize(_post_marker(predicted or ""))
+    for g in golds:
+        if not g:
+            continue
+        if contains_match(predicted, g):
+            return True
+        gn = _normalize(g)
+        if len(p) >= 2 and gn and _contains_phrase(gn, p):
+            return True
     return False
 
 
