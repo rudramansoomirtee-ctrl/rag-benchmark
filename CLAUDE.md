@@ -56,12 +56,20 @@ notebooks/analysis.py           # Marimo notebook for Chapter 4 figures
 
 ## The systems
 
-Lineup: **A** (naive), **B** (agentic single-tool loop), **F** (query decomposition),
-**F-tuned** (F + top-10 answer budget + per-query top-10 pools + weighted RRF +
-source-aware retrieval + CoT answer prompt; the few-shot decomposer is now shared
-with F). Faithfulness (HHEM) is computed for every run, not by a system
+Lineup: **A** (naive), **B** (agentic single-tool loop), **F** (PARALLEL query
+decomposition), **F-seq** (SEQUENTIAL self-ask decomposition — resolves each hop
+and carries the bridge answer forward into the next; shares F's few-shot
+decomposer). Faithfulness (HHEM) is computed for every run, not by a system
 — the old passive Systems C/D were folded into that metric. System E (vendored
 OpenRag) was removed; see top-of-file note.
+
+**System F-tuned was removed** (replaced by F-seq) after a chunk-level analysis of
+exp36/37 (DeepSeek-V3, MuSiQue) showed the real multi-hop lever is *sequential
+bridge resolution*, not F-tuned's parallel reranking/source-aware levers. F-tuned's
+residual deltas vs F (per-query top-10 pools, weighted RRF, source fan-out, CoT
+prompt) never beat plain F on accuracy. Historical F-tuned runs (exp18-26) remain
+in the DB. The shared answer-context budget that F-tuned pioneered now lives in
+`settings.fused_answer_top_k` (raised 10→20, see below).
 
 **System G was also removed** after consistently underperforming A/F across Haiku,
 Qwen3 and Nova Lite (e.g. Qwen3 passages exp14: G=0.444 vs A/F=0.889). G was the
@@ -85,8 +93,8 @@ all_retrieved_chunk_ids`. `retrieved_chunk_ids` is the final answering context;
 | Concern          | Module / Function                                            |
 |------------------|--------------------------------------------------------------|
 | Query embedding  | `retrieval/embeddings.py:embed_one` — `BAAI/llm-embedder`, 768-dim (the *model* is lru_cached via `get_model()`; per-query embeds are not) |
-| Retrieval        | `retrieval/retrieve.py:retrieve` — hybrid BM25 + dense kNN, RRF-fused (`opensearch_client.py:hybrid_search`), then cross-encoder rerank to `top_k`. A/B/F/F-tuned all share this; `knn_search`/`bm25_search` are its building blocks |
-| Multi-list fusion | `retrieval/retrieve.py:rrf_fuse` — client-side RRF over per-query ranked lists; B fuses its iteration lists, F its sub-question lists. Answer context = fused top `FUSED_ANSWER_TOP_K = 10` for both (one-list fusion is the identity ⇒ A's single retrieve also returns 10) |
+| Retrieval        | `retrieval/retrieve.py:retrieve` — hybrid BM25 + dense kNN, RRF-fused (`opensearch_client.py:hybrid_search`), then cross-encoder rerank to `top_k`. A/B/F/F-seq all share this; `knn_search`/`bm25_search` are its building blocks |
+| Multi-list fusion | `retrieval/retrieve.py:rrf_fuse` — client-side RRF over per-query ranked lists; B fuses its iteration lists, F its sub-question lists. Answer context = fused top `FUSED_ANSWER_TOP_K = 20` for both (raised 10→20 after exp36/37 chunk-level analysis showed retrieved gold being evicted from a 10-slot fused context; one-list fusion is the identity ⇒ A's single retrieve still returns its top_k=10) |
 | LLM call         | `llm/client.py:generate` — LiteLLM, `temperature=0`, returns content + tokens + cost |
 | Top-k            | `settings.top_k = 10` per retrieve() call (A answers over all 10; B/F fuse their iteration/sub-question lists to top-10 via `FUSED_ANSWER_TOP_K`) |
 | Trace capture    | `tracing.py:init_tracing` — auto-instruments LangChain + LiteLLM via openinference |
@@ -121,7 +129,7 @@ RETRIEVE → ROUTE ──(reformulate)──┐
   the final step, so `k=1` degenerates to one retrieve→answer (≈ A) rather than
   forcing "No answer".
 - **Iteration budget** is per-instance. The B1/B3/B5 sweep (budgets 1/3/5 as separate
-  registry entries) was **removed** — `SYSTEM_REGISTRY` is now just `A,B,F,F-tuned`;
+  registry entries) was **removed** — `SYSTEM_REGISTRY` is now just `A,B,F,F-seq`;
   historical sweep runs remain in the DB.
 - **Evidence accumulates across iterations** (IRCoT-style union): route, reformulate
   and answer all operate on `rrf_fuse(iteration_hits)[:FUSED_ANSWER_TOP_K]` — the
@@ -152,20 +160,40 @@ queries — the regression is visible.
 ### System F (query decomposition) — `systems/system_f.py`
 
 Multi-hop decomposition baseline. One LLM call (`instructor` → `Decomposition`,
-few-shot `DECOMPOSE_FEWSHOT_PROMPT` — shared with F-tuned, which imports it)
-splits the query into 2-4 single-hop sub-questions; F retrieves for the original
-+ each sub-question over the **same** `retrieve()` as A/B, RRF-fuses the lists
-(`rrf_fuse`, deduped by chunk_id), and answers once with the fused top-8
-(`FUSED_ANSWER_TOP_K`) context. `retrieved_chunk_ids` = that top-8 answering
-context (what HHEM scores against); `all_retrieved_chunk_ids` = the full fused list.
+few-shot `DECOMPOSE_FEWSHOT_PROMPT` — shared with F-seq, which imports it plus F's
+`_decompose`) splits the query into 2-4 single-hop sub-questions; F retrieves for
+the original + each sub-question **in parallel** over the **same** `retrieve()` as
+A/B, RRF-fuses the lists (`rrf_fuse`, deduped by chunk_id), and answers once with
+the fused top-`FUSED_ANSWER_TOP_K` (=20) context. `retrieved_chunk_ids` = that
+answering context (what HHEM scores against); `all_retrieved_chunk_ids` = the full
+fused list.
 - Retriever held constant ⇒ F-vs-A isolates the *decomposition* effect (vs E,
   which changes the retriever). Distinct from B: parallel decompose+fuse, not an
   iterative reformulation loop.
 - Single-hop ⇒ empty decomposition ⇒ F reduces to A's retrieval and context.
 - Decompose parse failure (Nova/Qwen JSON + trailing prose) degrades gracefully
-  to no sub-questions instead of a stub row — same policy as F-tuned.
+  to no sub-questions instead of a stub row — same policy as F-seq.
 - `n_steps` = number of retrievals (1 + #sub-questions); tokens/cost sum the
   decompose + answer calls (properly tracked, unlike B).
+
+### System F-seq (sequential self-ask decomposition) — `systems/system_fseq.py`
+
+F's sequential counterpart and the reason F-tuned was retired. Same decomposer and
+`retrieve()`/answer prompt as F, but resolves the ordered sub-questions **one hop
+at a time**: each hop substitutes the already-resolved bridge answers into its
+retrieval query (so "that director" becomes the real name — F's dead-bridge
+problem), retrieves, then a small LLM call answers that sub-question from its own
+context (`SUB_HOP_TOP_K = 5`). Resolved facts carry forward; the final answer is
+generated over the RRF-fused union of every hop (top `FUSED_ANSWER_TOP_K`) with the
+resolved intermediate facts supplied as a reasoning scaffold.
+- **F-vs-F-seq isolates PARALLEL vs SEQUENTIAL decomposition; F-seq-vs-B isolates
+  pre-decomposed self-ask vs free-form iterative reformulation** — the three-way
+  decomposition carve-out. Cites the self-ask / least-to-most lineage (Press et al.
+  2023; Zhou et al. 2023).
+- A failed hop answers `UNKNOWN` and is **not** carried forward (can't poison the
+  next query). Single-hop ⇒ no sub-questions ⇒ F-seq reduces to A's context.
+- `n_steps` = retrievals (1 + #sub-questions); tokens/cost sum decompose + per-hop
+  answer calls + final answer.
 - **Cite Ammann, Golde & Akbik (2025)**, *Question Decomposition for RAG* (ACL 2025
   SRW): F mirrors their decomposition + off-the-shelf reranker recipe on
   MultiHop-RAG (they report MRR@10 +36.7%, F1 +11.6%). They flag *"lack of iterative
@@ -305,7 +333,8 @@ aws_region              = "eu-west-2"
 embedding_model         = "BAAI/llm-embedder"   # 768-dim
 embedding_dim           = 768
 opensearch_index        = "rag-chunks"
-top_k                   = 5
+top_k                   = 10
+fused_answer_top_k      = 20                     # answer-context budget for B/F/F-seq (fused top-N); raised 10→20 (exp36/37 eviction analysis)
 retrieval_pool          = 20                     # hybrid first-stage pool size before rerank
 reranker_model          = "BAAI/bge-reranker-v2-m3"
 rerank_provider         = "local"                # "local" cross-encoder | "bedrock-cohere"
@@ -370,7 +399,7 @@ docker compose run --rm api python -m src.cli index-corpus multihop
 docker compose run --rm -e OPENSEARCH_INDEX=rag-chunks-musique api python -m src.cli index-corpus musique
 docker compose run --rm api python -m src.cli run-experiment --name X --systems A,B,F --datasets multihop
 docker compose run --rm api python -m src.cli run-experiment --name smoke --systems A --datasets multihop --limit 20  # quick smoke test (first 20)
-docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,B,F,F-tuned --datasets multihop --sample 500 --seed 42  # defensible stratified subset
+docker compose run --rm api python -m src.cli run-experiment --name sub --systems A,B,F,F-seq --datasets multihop --sample 500 --seed 42  # defensible stratified subset
 docker compose run --rm api python -m src.cli compute-metrics --experiment N
 docker compose run --rm api python -m src.cli judge --experiment N            # CRAG LLM-as-judge (post-hoc, resumable)
 docker compose run --rm api python -m src.cli metrics-by-type --experiment N  # accuracy by question type
