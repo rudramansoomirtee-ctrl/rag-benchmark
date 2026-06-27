@@ -40,7 +40,6 @@ from typing_extensions import TypedDict
 from src.config import settings
 from src.llm.client import generate
 from src.retrieval.retrieve import (
-    FUSED_ANSWER_TOP_K,
     format_context,
     retrieve,
     rrf_fuse,
@@ -50,6 +49,10 @@ from src.systems.system_a import ANSWER_SYSTEM_PROMPT
 from src.trace import trace_event
 
 logger = logging.getLogger("rag.system_b")
+
+# B answers over a smaller fused budget than F/F-seq — accumulating iteration
+# lists into a wide context dilutes the answer (see config.fused_answer_top_k_agent).
+B_ANSWER_TOP_K = settings.fused_answer_top_k_agent
 
 
 ROUTE_SYSTEM_PROMPT = (
@@ -112,7 +115,7 @@ def _route_node(state: AgentState) -> AgentState:
     only the latest batch would re-request facts already held. On the forced
     final step the route call is skipped (the outcome is known) and we answer.
     """
-    working = rrf_fuse(state["iteration_hits"])[:FUSED_ANSWER_TOP_K]
+    working = rrf_fuse(state["iteration_hits"])[:B_ANSWER_TOP_K]
     context = format_context(working)
     state["answer_chunks"] = working
     forced = state["n_steps"] >= state["max_agent_steps"]
@@ -200,7 +203,7 @@ class SystemB:
         iteration_hits = final.get("iteration_hits", [])
         answer_chunks = (
             final.get("answer_chunks")
-            or rrf_fuse(iteration_hits)[:FUSED_ANSWER_TOP_K]
+            or rrf_fuse(iteration_hits)[:B_ANSWER_TOP_K]
         )
         all_seen = list(dict.fromkeys(
             h["chunk_id"] for hits in iteration_hits for h in hits
