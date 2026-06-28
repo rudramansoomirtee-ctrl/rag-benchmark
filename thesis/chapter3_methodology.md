@@ -1,180 +1,192 @@
 # Chapter 3 — Methodology
 
-> **Draft status & how to use this file.** This is a full draft (~2,500 words) assembled from the
-> implemented system (`api/src/`), the claim audit (`DISSERTATION_AUDIT.md`), and the verified
-> literature base (`RELATED_WORK.md`). It describes work that exists in the codebase; it is *not*
-> a final hand-in. Before submitting: (a) rewrite in your own voice — examiners mark *your*
-> understanding; (b) resolve every `[CONFIRM]`/`[PLACEHOLDER]` marker; (c) verify each citation
-> against the cautions in `RELATED_WORK.md §6`. Markers left deliberately: exact model IDs/versions,
-> final sample size *N*, and hardware (P3) are environment facts only you can fill.
+> **Draft status & how to use this file.** A full draft assembled from the implemented system
+> (`api/src/`), the claim audit (`DISSERTATION_AUDIT.md`, esp. §5c), and the verified literature base
+> (`RELATED_WORK.md`). It describes work that exists in the codebase; it is *not* a final hand-in.
+> Before submitting: (a) rewrite in your own voice — examiners mark *your* understanding; (b) resolve
+> every `[CONFIRM]`/`[PLACEHOLDER]`; (c) verify citations against `RELATED_WORK.md §6`. Markers left
+> deliberately: exact model IDs/versions, final sample sizes *N*, and hardware (P3) are environment
+> facts only you can fill.
 >
-> **Figures** are Mermaid diagrams — they render inline on GitHub and in VS Code (Markdown Preview
-> Mermaid Support). For a Word/LaTeX submission, export each to PNG/SVG via mermaid.live or the
-> Mermaid CLI (`mmdc`) and swap the code block for the image.
+> **Figures** are Mermaid diagrams (render on GitHub / VS Code). For Word/LaTeX, export to PNG/SVG via
+> mermaid.live or `mmdc` and swap the code block for the image.
 
 ---
 
 ## 3.1 Research design
 
 This study is a **controlled computational experiment**. Its purpose is not to find the single best
-retrieval-augmented generation (RAG) pipeline, but to *isolate the effect of orchestration strategy*
-— the control logic that decides how many retrieval calls to issue and how to phrase them — on
-answer quality, cost, and latency, while holding every other component of the pipeline fixed.
+retrieval-augmented generation (RAG) pipeline, but to *isolate the effect of two design choices* —
+the **orchestration strategy** (the control logic that decides how many retrieval calls to issue and
+how to phrase them) and the **retrieval pipeline** (how candidate evidence is found and ranked) — on
+answer quality, cost, and latency, while holding every other component fixed.
 
-The design is a fully-crossed **4 × 3 matrix**: four orchestration strategies (S1–S4) evaluated under
-three language models, giving twelve system–model configurations, each run over one shared,
-stratified question sample. Because the retriever, the corpus, the answer-context budget, the
-prompts, and the evaluation harness are identical across every cell of the matrix, any measured
-difference between cells is attributable to the two manipulated factors — orchestration and model —
-rather than to confounded engineering choices. This single-variable framing is the methodological
-core of the dissertation and the basis of its originality claim (§3.2).
+The design comprises **two studies sharing one frozen substrate**:
+
+- **Study 1 — Orchestration.** The retriever is held constant; four orchestration strategies (A, B,
+  F, F-seq) are evaluated under three language models over two datasets. Because the retriever, the
+  corpus, the prompts, and the evaluation harness are identical across every cell, any measured
+  difference is attributable to orchestration (and model), not to confounded engineering choices.
+- **Study 2 — Retrieval pipeline.** Orchestration is held at its two simplest forms (naive,
+  iterative) and the *retriever* is varied — full hybrid+rerank versus dense-kNN-only. This 2×2 (A,
+  A-minus, B, B-minus) isolates the contribution of the retrieval pipeline and, crucially, its
+  *interaction* with orchestration.
+
+This single-variable framing — moving one factor at a time against a fixed substrate — is the
+methodological core of the dissertation and the basis of its originality claim (§3.2).
 
 ```mermaid
 flowchart TB
-    SAMPLE["One seeded stratified sample<br/>MultiHop-RAG · N questions<br/>Inference / Comparison / Temporal / Null"]:::data
-    SAMPLE --> MATRIX{{"4 × 3 fully-crossed matrix → 12 runs"}}:::hub
-    MATRIX --> ORCH
-    MATRIX --> MODELS
-    subgraph ORCH["Orchestration — the manipulated lever"]
-        direction LR
-        A["S1 · A<br/>naive"]:::sys
-        B["S2 · B<br/>iterative"]:::sys
-        F["S3 · F<br/>decomposition"]:::sys
-        FT["S4 · F-tuned<br/>stacked ceiling"]:::sys
+    SUB["Frozen substrate<br/>one seeded stratified sample / dataset · local bge reranker · temp 0 · same prompts"]:::fixed
+    SUB --> S1
+    SUB --> S2
+    subgraph S1["Study 1 — Orchestration (retriever fixed)"]
+      direction LR
+      A1["A · naive"]:::sys
+      B1["B · iterative"]:::sys
+      F1["F · parallel decompose"]:::sys
+      FS1["F-seq · sequential decompose"]:::sys
     end
-    subgraph MODELS["Model — budget tier"]
-        direction LR
-        H["Haiku 4.5"]:::mdl
-        NL["Nova Lite"]:::mdl
-        QW["Qwen3"]:::mdl
+    subgraph S2["Study 2 — Retrieval pipeline (orchestration fixed)"]
+      direction LR
+      AA["A vs A-minus"]:::sys2
+      BB["B vs B-minus"]:::sys2
     end
-    ORCH --> RET["Shared hybrid retriever — held constant"]:::fixed
-    MODELS --> RET
-    RET --> OUT["accuracy · Token F1 · cost · latency · retrieval ceiling"]:::out
-    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
-    classDef hub fill:#fff3e0,stroke:#e65100,color:#bf360c
-    classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
-    classDef mdl fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+    S1 --> MOD["× 3 models · Qwen3-32B · DeepSeek-V3 · Nova Lite"]:::mdl
+    S2 --> MOD
+    MOD --> DS["× 2 datasets · MuSiQue · MultiHop-RAG"]:::data
+    DS --> OUT["accuracy · type/hop · cost-per-correct · ceiling · rank stability"]:::out
     classDef fixed fill:#fce4ec,stroke:#ad1457,color:#880e4f
+    classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
+    classDef sys2 fill:#e0f2f1,stroke:#00695c,color:#004d40
+    classDef mdl fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
     classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
 ```
-*Figure 3.1 — Experimental design: one fixed sample crossed with four strategies and three models, all sharing a single frozen retriever.*
+*Figure 3.1 — Two studies on one frozen substrate: Study 1 varies orchestration with the retriever fixed; Study 2 varies the retriever with orchestration fixed; both run across three models and two datasets.*
 
-The experiment is **quantitative and reproducible by construction**. All four strategies are
-implemented behind one Python interface, executed by one deterministic runner, and persisted to a
-relational database with a provenance fingerprint attached to every experiment (§3.8). Determinism
-is enforced wherever a language model is invoked (`temperature = 0`), so a re-run of the same
-configuration against the same corpus build reproduces the same answers.
+The experiment is **quantitative and reproducible by construction**. Every strategy implements one
+Python interface, is executed by one deterministic runner, and is persisted to a relational database
+with a provenance fingerprint on every experiment (§3.8). Determinism is enforced wherever a language
+model is invoked (`temperature = 0`), so a re-run of the same configuration against the same corpus
+build reproduces the same answers.
 
 ## 3.2 The controlled-comparison framework
 
-The independent variable of interest is *orchestration*, and the framework is designed so that three
-of the four systems vary **only** in orchestration. Systems A, B and F share the same retriever
-(§3.4), the same generator and prompt, and — critically — the same **answer-context budget of ten
-chunks**. They differ in exactly one respect: *how those ten chunks are selected*.
+**Study 1 — the orchestration arm.** The independent variable is *orchestration*, and the framework
+is designed so the four systems vary only in it. Systems A, B, F and F-seq share the same retriever
+(§3.4), the same generator and answer prompt, and the same evidence-fusion mechanism. The three
+*multi-query* strategies — B, F, F-seq — additionally share an identical **answer-context budget of
+twenty fused chunks** (`fused_answer_top_k = 20`), so they differ in exactly one respect: *how the
+queries that fill that budget are produced*.
 
-- **A** selects its ten chunks in a single retrieval pass.
-- **B** selects them by fusing the results of several sequential retrievals, where each query is
-  conditioned on evidence already gathered.
-- **F** selects them by fusing the results of several parallel retrievals, where the queries are
-  produced up front by decomposing the question.
+- **A** answers over a single retrieval pass (its top-10) — the standard-RAG baseline and the
+  degenerate case the others reduce to when no extra queries are warranted.
+- **B** fuses the results of several *sequential* retrievals, each query conditioned on evidence
+  already gathered.
+- **F** fuses the results of several *parallel* retrievals, the queries produced up front by
+  decomposing the question.
+- **F-seq** decomposes like F, but resolves the sub-questions *sequentially*, substituting each
+  resolved bridge answer into the next sub-question's retrieval query.
 
 ```mermaid
 flowchart LR
     Q(["Question"]):::data
-    Q --> A0
-    Q --> B0
-    Q --> F0
-    A0["<b>A</b> · one retrieval pass"]:::sys
-    B0["<b>B</b> · retrieve → reformulate loop<br/>≤ 5 steps · evidence accumulates"]:::sys
+    Q --> A0 & B0 & F0 & FS0
+    A0["<b>A</b> · one retrieval pass · top-10"]:::sys
+    B0["<b>B</b> · retrieve→reformulate loop<br/>≤5 steps · evidence accumulates"]:::sys
     F0["<b>F</b> · decompose → parallel retrievals"]:::sys
-    A0 --> FUSE
+    FS0["<b>F-seq</b> · decompose → sequential,<br/>bridge-resolved retrievals"]:::sys
     B0 --> FUSE
     F0 --> FUSE
-    FUSE["RRF fuse → top-10 answer context<br/>(identical budget for all three)"]:::fixed
+    FS0 --> FUSE
+    A0 --> ANS
+    FUSE["RRF fuse → top-20 fused budget<br/>(identical for B / F / F-seq)"]:::fixed
     FUSE --> ANS["One answer call<br/>same generator · same prompt"]:::out
     classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
     classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
     classDef fixed fill:#fce4ec,stroke:#ad1457,color:#880e4f
     classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
 ```
-*Figure 3.2 — The controlled single-variable comparison. Only the middle (purple) stage differs across A, B and F; the inputs, the ten-chunk budget (pink), and the generation step (lavender) are held identical.*
+*Figure 3.2 — The controlled single-variable orchestration comparison. The three multi-query strategies (B, F, F-seq) share the retriever, the generator and an identical 20-chunk fused budget; only the query-production logic (purple) differs. System A is the single-pass baseline.*
 
-Because retriever, generator, prompt, and budget are constant, the A↔B↔F contrast is — to use the
-audit's phrasing — "the purest possible comparison": B and F differ from A and from each other only
-in *how the extra queries are produced* (sequential conditioned reformulation versus parallel upfront
-decomposition). This is the controlled single-variable arm of the study and the explicit answer to
-**Gap 1** (confounded RAG evaluations): published MultiHop-RAG results mix chunkers, embedders and
-language models, and no leaderboard exists to normalise them (`RELATED_WORK.md §2`), whereas this
-design fixes the substrate and moves one lever at a time.
+Because retriever, generator, prompt and budget are constant across the multi-query systems, the
+**B ↔ F ↔ F-seq** contrast is the purest in the study: the systems differ only in *how the extra
+queries are produced* — sequential conditioned reformulation (B), parallel upfront decomposition (F),
+or sequential self-ask decomposition (F-seq). This is the explicit answer to **Gap 1** (confounded RAG
+evaluations): published MultiHop-RAG results mix chunkers, embedders and language models with no
+leaderboard to normalise them (`RELATED_WORK.md §2`), whereas this design fixes the substrate and
+moves one lever at a time.
 
-The fourth system, **F-tuned (S4)**, is deliberately *not* a clean single-variable arm. It stacks
-several engineering levers on top of F — weighted reciprocal-rank fusion, source-metadata fan-out,
-reserved context slots, and a chain-of-thought answer prompt — and in doing so it also changes the
-prompt and the internal context composition. It is therefore presented honestly as a **stacked
-engineering ceiling**: an estimate of how far the decomposition family can be pushed with realistic
-tuning, not as a controlled measurement of any one lever. Keeping F-tuned rhetorically separate from
-the A/B/F arm preserves the integrity of the Gap-1 confound claim.
+Two single-variable contrasts carry the orchestration findings: **F vs F-seq** isolates *parallel
+versus sequential* decomposition (self-ask / least-to-most lineage — Press et al. 2023; Zhou et al.
+2023), and **F-seq vs B** isolates *pre-decomposed self-ask versus free-form iterative reformulation*.
+A note on scope: System A answers over its single-pass top-10 rather than a padded 20, so A↔(B/F/F-seq)
+comparisons combine the orchestration change with a 10→20 budget change; the clean
+budget-held-constant comparison is *among* the multi-query systems and within each Study-2 pair (below).
+The 20-chunk budget itself was fixed after a budget-sensitivity ablation showed the optimum is
+per-strategy (iterative accumulation prefers a narrower budget, fan-out a wider one); a single constant
+was adopted for comparability (`DISSERTATION_AUDIT.md §5c`).
 
-## 3.3 The four orchestration strategies (S1–S4)
+**Study 2 — the retrieval arm.** The second arm holds orchestration constant and varies the retriever.
+A-minus and B-minus are byte-for-byte System A and System B with retrieval restricted to **dense-kNN
+nearest-neighbour search only** — no BM25 lexical matching, no reciprocal-rank fusion, no
+cross-encoder rerank (a per-call `retrieve(semantic_only=True)` switch, §3.4). Each pair is
+budget-matched (A/A-minus over top-10; B/B-minus over the fused top-20), so **A↔A-minus** and
+**B↔B-minus** isolate the retrieval-pipeline contribution exactly, and the difference between those two
+deltas measures whether orchestration *compensates for* a weaker retriever. This arm replaces the
+earlier F-tuned "stacked engineering ceiling": rather than confound several levers in one system, the
+retriever is now a clean, separately-manipulated factor.
 
-All four strategies implement a single `answer(query) -> RunResult` protocol (`systems/base.py`),
-so the runner treats them interchangeably and the only thing that varies between them is the control
-logic itself.
+## 3.3 The orchestration strategies and their retrieval-ablated twins
 
-**S1 — System A (naive).** A single retrieval followed by a single generation. A retrieves ten
-chunks for the original question and answers over them in one language-model call. It is the
-"standard RAG" baseline that every comparable paper measures against (`RELATED_WORK.md §4`) and the
-degenerate case to which B and F reduce when no additional queries are warranted.
+All systems implement a single `answer(query) -> RunResult` protocol (`systems/base.py`), so the
+runner treats them interchangeably and only the control logic varies.
 
-**S2 — System B (iterative agent).** A bounded reformulation loop implemented in LangGraph
-(`systems/system_b.py`). Each iteration is *two* language-model calls: a one-field typed routing
-decision (`RouteDecision`, `action ∈ {reformulate, answer}`, produced through the `instructor`
-library so it cannot parse-fail), followed by a free-text call that writes either the reformulated
-search query or the final answer. Splitting the decision from the generation was a deliberate
-robustness choice — a single multi-field schema choked on the non-Anthropic models, whereas the
-one-field route survives them. The loop terminates on an `answer` action or at a hard budget of
-five steps (`max_agent_steps`). Crucially, evidence **accumulates across iterations** in an
-IRCoT-style union: every routing, reformulation and answer step operates on the reciprocal-rank
-fusion of all iterations' hits, truncated to the shared ten-chunk budget — so a chunk found at step
-one remains visible at step three. B's closest literature anchors are IRCoT and Iter-RetGen, from
-which it differs by reformulating a *search query* (not a chain-of-thought sentence, not a full
-answer), by its typed route step, and by running on a budget commercial model rather than GPT-3.5
-or PaLM.
+**A — naive** (`systems/system_a.py`). A single retrieval followed by a single generation: A retrieves
+ten chunks for the question and answers over them in one model call. The "standard RAG" baseline every
+comparable paper measures against (`RELATED_WORK.md §4`).
+
+**B — iterative agent** (`systems/system_b.py`). A bounded reformulation loop implemented in LangGraph.
+Each iteration is a single **free-text** routing call that replies in one of two forms — `ANSWER`
+(synthesise now) or `SEARCH: <query>` (the next search query) — parsed by a simple keyword rule; when
+the loop answers, a dedicated call with the shared answer prompt produces the final response. This
+free-text routing **replaced an earlier typed `instructor` schema** that parse-failed on the
+non-Anthropic models (it emitted the decision as prose, not JSON); the keyword form is robust across
+all three models and roughly halves B's model calls. The loop terminates on an `ANSWER` action or at a
+hard budget of five steps (`max_agent_steps`). Evidence **accumulates across iterations** (IRCoT-style
+union): routing and answering operate on the reciprocal-rank fusion of all iterations' hits, truncated
+to the shared twenty-chunk budget, so a chunk found at step one remains visible at step five. B's
+closest anchors are IRCoT and Iter-RetGen, from which it differs by reformulating a *search query*
+(not a chain-of-thought sentence, not a full answer) and by running on cost-efficient models.
 
 ```mermaid
 stateDiagram-v2
     [*] --> RETRIEVE
-    RETRIEVE --> ROUTE: fuse all iterations' hits → top-10
-    ROUTE --> REFORMULATE: action = reformulate
-    ROUTE --> ANSWER: action = answer, or step = max (5)
+    RETRIEVE --> ROUTE: fuse all iterations' hits → top-20
+    ROUTE --> REFORMULATE: reply "SEARCH: q"
+    ROUTE --> ANSWER: reply "ANSWER", or step = max (5)
     REFORMULATE --> RETRIEVE: new search query
     ANSWER --> [*]
 ```
-*Figure 3.3 — System B's two-call state machine: each loop is a typed ROUTE decision followed by either a reformulation (back to RETRIEVE) or the final ANSWER, bounded at five steps.*
+*Figure 3.3 — System B's loop: a free-text ROUTE reply (`ANSWER` / `SEARCH: q`) drives either another retrieval or the final answer, bounded at five steps; evidence accumulates via RRF across iterations.*
 
-**S3 — System F (query decomposition).** A single language-model call decomposes the question into
-two-to-four single-hop sub-questions (a few-shot `Decomposition` schema, shared with F-tuned). F then
-retrieves for the original question *and* each sub-question over the same retriever as A and B,
-reciprocal-rank-fuses the resulting lists (deduplicated by chunk), and answers once over the fused
-top ten. A single-hop question yields an empty decomposition, so F degenerates exactly to A's
-retrieval and context. F mirrors the decomposition-plus-reranker recipe of Ammann, Golde & Akbik
-(2025) but is **not a replication**: it uses a hybrid rather than dense-only retriever, per-sub-question
-rerank then fusion rather than a single merged-pool rerank, `temperature = 0` rather than 0.8, and a
-budget model rather than Qwen-32B (`RELATED_WORK.md §4`).
+**F — parallel decomposition** (`systems/system_f.py`). A single model call decomposes the question
+into two-to-four single-hop sub-questions (a few-shot `Decomposition` schema). F retrieves for the
+original question *and* each sub-question over the same retriever, reciprocal-rank-fuses the lists
+(deduplicated by chunk), and answers once over the fused top-twenty. A single-hop question yields an
+empty decomposition, so F degenerates to A. F mirrors the decomposition-plus-reranker recipe of Ammann,
+Golde & Akbik (2025) but is **not a replication** (hybrid not dense-only retriever; per-sub-question
+rerank then fusion; `temperature = 0`; cost-efficient models — `RELATED_WORK.md §4`).
 
 ```mermaid
 flowchart TB
     Q(["Question"]):::data --> D["Decompose · few-shot<br/>2–4 single-hop sub-questions"]:::sys
-    D --> Q0["original query"]:::q
-    D --> Q1["sub-q 1"]:::q
-    D --> Q2["sub-q 2"]:::q
-    D --> Qn["sub-q n"]:::q
-    Q0 --> RET["Shared retrieve (each, in parallel)"]:::fixed
+    D --> Q0["original"]:::q & Q1["sub-q 1"]:::q & Q2["sub-q 2…n"]:::q
+    Q0 --> RET["Shared retrieve · each, in parallel"]:::fixed
     Q1 --> RET
     Q2 --> RET
-    Qn --> RET
-    RET --> FUSE["RRF fuse · dedup → top-10"]:::fixed
+    RET --> FUSE["RRF fuse · dedup → top-20"]:::fixed
     FUSE --> ANS["Answer once"]:::out
     classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
     classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
@@ -182,171 +194,215 @@ flowchart TB
     classDef fixed fill:#fce4ec,stroke:#ad1457,color:#880e4f
     classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
 ```
-*Figure 3.4 — System F: parallel fan-out over the original question plus its sub-questions, fused back to the same ten-chunk budget before a single answer call.*
+*Figure 3.4 — System F: parallel fan-out over the question plus its sub-questions, fused to the 20-chunk budget before one answer call.*
 
-**S4 — System F-tuned (stacked levers).** F plus four additions (`systems/system_f_tuned.py`):
-weighted reciprocal-rank fusion that privileges the original query (2.0×) and source-filtered
-retrievals (1.5×) over plain sub-questions (1.0×); a source-metadata fan-out that issues additional
-retrievals filtered to the publishers named in the question; reserved slots that guarantee
-representation from the original query in the final context; and a chain-of-thought answer prompt. As
-noted in §3.2 it is the engineering-ceiling arm. Its residual deltas versus F are the weighted
-fusion, the source fan-out, the reserved slots and the CoT prompt — the few-shot decomposer is shared
-and therefore not a delta.
+**F-seq — sequential self-ask decomposition** (`systems/system_fseq.py`). F-seq shares F's decomposer
+and answer prompt but resolves the ordered sub-questions **one hop at a time**. For each sub-question it
+substitutes the already-resolved bridge answers into the retrieval query (so a descriptive reference
+like "the spouse of *that director*" becomes the real name — F's *dead-bridge* weakness), retrieves,
+then a small model call answers that sub-question from its own context. Resolved facts carry forward; a
+failed hop answers `UNKNOWN` and is not carried (so it cannot poison the next query). The final answer
+is generated over the RRF-fused union of every hop, with the resolved intermediate facts supplied as a
+reasoning scaffold. F-seq is the sequential counterpart that makes the parallel-versus-sequential
+decomposition contrast (vs F) a clean single-variable comparison.
 
-Both F and F-tuned degrade gracefully: a decomposition that fails to parse (a known failure mode on
-the non-Anthropic models, which emit JSON followed by trailing prose) yields no sub-questions rather
-than a crash, so the system falls back to A's behaviour instead of recording a null run.
+```mermaid
+flowchart TB
+    Q(["Question"]):::data --> D["Decompose · ordered sub-questions"]:::sys
+    D --> H1["Hop 1 · retrieve → sub-answer"]:::sys
+    H1 -->|carry bridge answer| H2["Hop 2 · substitute bridge → retrieve → sub-answer"]:::sys
+    H2 -->|carry| Hn["Hop n …"]:::sys
+    Hn --> FUSE["RRF fuse all hops → top-20<br/>+ resolved facts as scaffold"]:::fixed
+    FUSE --> ANS["Answer once"]:::out
+    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
+    classDef fixed fill:#fce4ec,stroke:#ad1457,color:#880e4f
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
+```
+*Figure 3.5 — System F-seq: ordered hops, each substituting the prior hop's resolved answer into its retrieval query, fused to the 20-chunk budget for one final answer.*
+
+**A-minus and B-minus — the retrieval-ablated twins.** A-minus and B-minus are A and B with retrieval
+restricted to dense-kNN only (§3.4). They are not new orchestrations — they are the *same* naive and
+iterative logic over a deliberately weakened retriever, and exist solely to isolate the retrieval
+pipeline in Study 2. F and F-seq have no "minus" twin: their value is the decomposition logic, and the
+retriever effect they would show is already captured by A-minus/B-minus.
+
+Both F and F-seq **degrade gracefully**: a decomposition that fails to parse yields no sub-questions
+rather than a crash, so the system falls back to A's behaviour. This fallback is not merely defensive —
+it is the mechanism behind a model-robustness finding (§3.5, §4.6).
 
 ## 3.4 The shared retrieval substrate
 
-The retriever is the principal experimental control: holding it constant across all four strategies
-is what licenses attributing differences to orchestration. Every system calls one entry point,
+The retriever is the principal experimental control: holding it constant across Study 1 is what
+licenses attributing differences to orchestration. Every system calls one entry point,
 `retrieval/retrieve.py:retrieve`, which performs **hybrid retrieval** — lexical BM25 and dense
-k-nearest-neighbour search run in parallel, fused by reciprocal-rank fusion, and then re-ranked by a
-cross-encoder to the final top-*k*. Queries are embedded with `BAAI/llm-embedder` (768 dimensions);
-the corpus is indexed in OpenSearch using HNSW (Lucene engine, cosine similarity); the first-stage
-pool size before reranking is twenty (`retrieval_pool`); and the cross-encoder is
-`BAAI/bge-reranker-v2-m3`. Multi-list fusion for B (across iterations) and F (across sub-questions)
-uses a client-side reciprocal-rank fusion (`rrf_fuse`) that is independent of OpenSearch's absolute
-score scale, so the fusion behaves identically regardless of how the underlying scores are
-distributed. The single-list case is the identity, so A's lone retrieval also returns ten chunks —
-which is why the ten-chunk answer-context budget holds uniformly across A, B and F.
+k-nearest-neighbour search run in parallel, fused by reciprocal-rank fusion to a first-stage pool, then
+re-ranked by a cross-encoder to the final top-*k*. Queries are embedded with `BAAI/llm-embedder` (768
+dimensions); the corpus is indexed in OpenSearch (HNSW, Lucene, cosine); the first-stage pool is twenty
+(`retrieval_pool`); and the cross-encoder is the local `BAAI/bge-reranker-v2-m3` (chosen over a hosted
+reranker for the final matrix: it is free, reproducible, and removes an external dependency). Multi-list
+fusion for B, F and F-seq uses a client-side reciprocal-rank fusion (`rrf_fuse`) independent of
+OpenSearch's absolute score scale.
 
 ```mermaid
 flowchart LR
-    q(["query"]):::data --> EMB["embed<br/>BAAI/llm-embedder · 768-d"]:::step
-    q --> BM["BM25<br/>lexical"]:::step
-    EMB --> KNN["dense kNN<br/>HNSW · cosine"]:::step
-    BM --> RRF["RRF fuse<br/>first-stage pool = 20"]:::step
+    q(["query"]):::data --> EMB["embed · BAAI/llm-embedder · 768-d"]:::step
+    q --> BM["BM25 · lexical"]:::step
+    EMB --> KNN["dense kNN · HNSW · cosine"]:::step
+    BM --> RRF["RRF fuse · pool = 20"]:::step
     KNN --> RRF
-    RRF --> RR["cross-encoder rerank<br/>BAAI/bge-reranker-v2-m3"]:::step
+    RRF --> RR["cross-encoder rerank · bge-reranker-v2-m3"]:::step
     RR --> TK["top-k context"]:::out
+    KNN -. "semantic_only = True (A-minus / B-minus)" .-> TK
     classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
     classDef step fill:#e0f2f1,stroke:#00695c,color:#004d40
     classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
 ```
-*Figure 3.5 — The shared hybrid retrieval substrate (`retrieval/retrieve.py:retrieve`), identical for all four strategies: parallel BM25 + dense search, RRF fusion over a pool of 20, then cross-encoder rerank.*
+*Figure 3.6 — The shared hybrid substrate (`retrieve`): BM25 + dense, RRF over a pool of 20, then cross-encoder rerank. The dashed path is the Study-2 ablation: `semantic_only=True` short-circuits to dense-kNN alone, bypassing BM25, fusion and rerank.*
 
-A small but load-bearing detail of the substrate is **context formatting** (`format_context`): each
-chunk is rendered with its source and title metadata, not just its text. This closes a
-benchmark-specific gap in MultiHop-RAG, where comparison questions name a publisher ("the Hacker News
-article on …") that the chunk text alone does not expose; without surfacing the `source` field these
-questions fail across every system even when the correct chunk is retrieved. Because the formatting is
+The **semantic-only ablation** is the single switch that defines A-minus and B-minus: with
+`semantic_only=True`, `retrieve` returns the raw dense-kNN top-*k*, skipping BM25, RRF and the
+reranker. Because it is a per-call argument (not a global flag), the ablated and full-pipeline systems
+run side by side in one experiment over the identical sample — the cleanest possible retriever
+comparison.
+
+A small but load-bearing detail is **context formatting** (`format_context`): each chunk is rendered
+with its source and title metadata, not just text. This closes a benchmark-specific gap in MultiHop-RAG
+(comparison questions name a publisher the chunk text does not expose). Because the formatting is
 shared, it cannot bias one strategy over another.
 
 ## 3.5 Models and inference
 
-The three models span a **budget commercial tier** rather than a capability frontier:
-Claude Haiku 4.5, Amazon Nova Lite, and Qwen3 `[CONFIRM final model IDs/versions]`. All are served
-through AWS Bedrock and invoked via the **LiteLLM SDK** — not a LiteLLM proxy; the single-user
-research setting makes the SDK the simpler and fully sufficient choice. Inference is deterministic
-(`temperature = 0`). Per-call cost is read directly from the provider response
-(`response._hidden_params["response_cost"]`), with a fallback to LiteLLM's per-token pricing map when
-a provider omits the field, and is persisted per run so that the cost axis (§3.7) is grounded in
-actual billed figures rather than estimates.
+The three models are **heterogeneous cost-efficient models spanning a capability gradient** rather than
+a capability frontier: Nova Lite (small/weak) < Qwen3-32B (mid) < DeepSeek-V3 (large MoE, near-frontier
+capability but cheap to serve) `[CONFIRM final model IDs/versions]`. All are served through AWS Bedrock
+and invoked via the **LiteLLM SDK** (not a proxy; the single-user setting makes the SDK sufficient).
+Inference is deterministic (`temperature = 0`). Per-call cost is read from the provider response
+(`response._hidden_params["response_cost"]`), with a per-token fallback, and persisted per run so the
+cost axis (§3.7) rests on billed figures, not estimates. As the embedder, reranker and faithfulness
+model run locally on CPU at no charge, the recorded `cost_usd` is the full variable cost.
 
-Because all three models occupy the same budget class, the cross-model comparison (RQ3/RQ4) is framed
-as **rank stability across heterogeneous budget-class models**, not as a "model strength" axis: with
-no frontier anchor in the matrix, claims about absolute capability would overreach. This scoping is a
-deliberate honesty constraint carried over from the audit (W6).
+Two scoping constraints follow from this panel. First, the cross-model comparison (RQ3/RQ4) is framed
+as **rank stability across a cost-efficient capability gradient**, not an absolute "model strength"
+axis; frontier proprietary models are out of scope by design — the contribution is the cost-constrained
+regime (audit W6). Second, the panel surfaces a **model-robustness result**: Nova Lite cannot reliably
+execute the decomposition systems — its structured-output decoder parse-fails, so F and F-seq fall back
+to no sub-questions and degrade to naive retrieval (a pilot showed ~1.1 retrievals on Nova versus
+3.5–3.7 on Qwen3/DeepSeek). F and F-seq are therefore reported on Qwen3 and DeepSeek-V3 only, and the
+failure is itself a finding: *decomposition orchestration presupposes reliable structured-output
+generation, whereas iterative free-text reformulation (B) is the more model-robust multi-hop strategy*
+(§4.6).
 
-## 3.6 Dataset and sampling
+## 3.6 Datasets and sampling
 
-Two datasets are used, each for a distinct role.
+Two multi-hop datasets are used, chosen so their *retrieval characteristics differ* — which turns out
+to be central to Study 2.
 
-**MultiHop-RAG** (Tang & Yang 2024, COLM; `yixuantt/MultiHopRAG`) supplies both retrieval and
-answer-correctness evaluation. It comprises 2,556 queries over a news corpus, partitioned into four
-question types — Inference (816), Comparison (856), Temporal (583) and **Null** (301) — with evidence
-distributed across two-to-four documents per query. Chunks are 256-token passages; gold evidence is
-keyed by article URL, and the answer-scoring layer maps retrieved passages back to their parent
-article when computing retrieval metrics. The **Null** type — questions with no answerable evidence —
-is retained throughout (sampling, stratification, and refusal-equivalence scoring), because a
-strategy's tendency to over-answer unanswerable questions is itself a finding.
+**MultiHop-RAG** (Tang & Yang 2024, COLM; `yixuantt/MultiHopRAG`) supplies retrieval and
+answer-correctness evaluation over a **news corpus**: 2,556 queries in four types — Inference (816),
+Comparison (856), Temporal (583) and **Null** (301) — with evidence across two-to-four documents.
+Chunks are 256-token passages; gold evidence is keyed by article URL, and retrieved passages are mapped
+back to their parent article when scoring retrieval. The **Null** type (unanswerable questions) is
+retained throughout sampling, stratification and refusal-equivalence scoring, because a strategy's
+tendency to over-answer is itself a finding.
 
-**RAGTruth** (`ParticleMedia/RAGTruth`) is used only to **calibrate the faithfulness threshold**. Its
-calibration split is scored through the hallucination-detection model (§3.7), and the F1-maximising
-threshold over the resulting curve is adopted as the operating point for flagging unfaithful answers.
+**MuSiQue** (Trivedi et al. 2022, TACL; `dgslibisey/MuSiQue`) is an **anti-shortcut** multi-hop
+dataset: its 2–4-hop questions are composed so that answering genuinely requires combining evidence
+across paragraphs. Critically, its hard distractors are **mined with BM25, with intermediate answers
+masked** (`RELATED_WORK.md §8`) — i.e. the distractors are adversarially confusable to *lexical*
+retrieval by construction. Each question ships ~20 candidate paragraphs; the ingested questions'
+paragraphs are pooled into one corpus (keyed `<question_id>::p<idx>`) in a separate index
+(`rag-chunks-musique`), so retrieval is scoped to MuSiQue and each query competes against the full
+pooled set of distractors. Gold = the supporting paragraphs; hop count is stored as the question type
+(`2hop`/`3hop`/`4hop`) for stratification. A data-integrity check confirmed the corpus is complete (all
+gold paragraphs present and indexed; `DISSERTATION_AUDIT.md §5c`). This study evaluates MuSiQue in a
+**pooled-distractor retrieval setting** — harder than the native 20-paragraph distractor setting, easier
+than open-domain Wikipedia; absolute scores are therefore not directly comparable to either, but the
+retriever is held constant across systems, so the within-study comparisons are valid.
 
-Query selection is a **single seeded, stratified sample**, stratified by question type so that all
-four types — including Null — are represented in proportion. The exact query identifiers are recorded
-in the experiment's configuration snapshot, and **the identical sample is reused across all twelve
-runs**, so that every system–model cell answers exactly the same questions. This is what makes the
-twelve runs mutually comparable; describing them as "4 × 3 sample sets" would be wrong, because that
-phrasing implies a different sample per cell and would break comparability. The final sample size is
-*N* = `[PLACEHOLDER: N]` queries `[CONFIRM seed]`.
+The choice of two datasets with opposite lexical characteristics — news (lexically honest) versus
+MuSiQue (lexically adversarial) — is deliberate: it is what makes the dataset-dependent retriever
+finding (§4.3) possible.
+
+Query selection is a **single seeded, stratified sample per dataset** (stratified by question type /
+hop count), with the exact query identifiers recorded in the experiment's configuration snapshot and
+**reused across all cells** so every system answers the same questions. The final sample sizes are
+MuSiQue *N* = `[PLACEHOLDER]` (up to the 150 ingested) and MultiHop-RAG *N* = `[PLACEHOLDER]`
+`[CONFIRM seed]`. (Earlier pilot runs used *N* = 50, which exhibited single-digit-query noise; the final
+matrix raises *N* to reduce it.)
+
+> **Note — RAGTruth removed.** An earlier design used RAGTruth to calibrate the faithfulness threshold.
+> RAGTruth has been removed as a dataset; the HHEM threshold is now a fixed configuration value (§3.7),
+> not fit from a calibration split.
 
 ## 3.7 Metrics and scoring
 
-Correctness is reported through a deliberately layered set of metrics, with a single deterministic
-**primary** and several secondaries, so that no finding rests on one possibly-idiosyncratic measure.
+Correctness is reported through a layered set with a single deterministic **primary** and lexical
+secondaries, so no finding rests on one possibly-idiosyncratic measure.
 
 **Primary — containment accuracy.** `contains_match` asks whether the normalised gold answer appears
-within the normalised model response. This matches the MultiHop-RAG paper's own treatment of its
-short factoid answers (yes/no, entity, before/after). Two disclosures are required for rigour: this
-study's containment is in fact **stricter** than the benchmark's *official* scorer, which uses a
-looser word-set intersection (verified in the benchmark's `qa_evaluate.py`); and the matcher adds
-post-marker extraction, refusal-equivalence (so a standard refusal counts as correct on Null
-questions), and entity-suffix tolerance. These adaptations are disclosed rather than silently applied.
+within the normalised response — matching the MultiHop-RAG paper's treatment of short factoid answers.
+For MuSiQue, which ships answer aliases, the runner uses `answer_match`: containment against gold *plus
+aliases*, with bidirectional whole-word matching so a correct-but-terser answer ("Paraguay" vs
+"Alfredo Stroessner's Paraguay") still scores. Two disclosures: this study's containment is **stricter**
+than the benchmark's official word-set-intersection scorer (verified in `qa_evaluate.py`), so reported
+accuracy is conservative; and the matcher adds post-marker extraction, refusal-equivalence (a standard
+refusal scores correct on Null questions), unicode-dash normalisation (so "1943-1992" matches
+"1943–1992"), and entity-suffix tolerance — all disclosed rather than silently applied.
 
-**Secondaries.** `exact_match` is normalised full-string equality — stricter than containment, and
-itself slightly stricter than SQuAD exact-match because it does not strip the articles *a/an/the*
-(disclosed). `token_f1` is SQuAD-style token-overlap F1 over the post-marker answer text, comparable
-to the answer-F1 that decomposition papers such as Ammann et al. report. A **CRAG LLM-as-judge**
-(Yang et al. 2024) provides a third, non-deterministic view, scoring each answer on the
-perfect/acceptable/missing/incorrect rubric mapped to 1 / 0.5 / 0 / −1; this study uses the four-way
-*human-rubric* weights (disclosed, as the auto-eval variant merges to three way), runs the judge at
-`temperature = 0`, and pairs cheap generation with an independent, stronger judge model. The judge is
-explicitly secondary and never the headline number.
+**Secondaries.** `exact_match` is normalised full-string equality (slightly stricter than SQuAD EM — it
+does not strip *a/an/the*; disclosed). `token_f1` is SQuAD-style token-overlap F1 over the post-marker
+answer, comparable to the answer-F1 decomposition papers report. A CRAG LLM-as-judge is implemented
+(`evaluation/judge.py`, the four-way human-rubric weights 1/0.5/0/−1) but is treated as an optional
+secondary and is **omitted from the final matrix by design** — the deterministic primary plus lexical
+secondaries are the headline metrics, and dropping the judge also removes a non-deterministic, costed
+dependency.
 
-**Retrieval quality** is measured with the benchmark's own set — Hits@4, Hits@10, MRR@10 and MAP@10 —
-plus precision and recall at five.
+**Retrieval quality** uses the benchmark's own set — Hits@4, Hits@10, MRR@10, MAP@10 — plus precision
+and recall at five.
 
-**Faithfulness** is computed for *every* run, independent of strategy, by the Vectara HHEM
-hallucination-evaluation model: the retrieved chunk texts form the premise, the answer the
-hypothesis, and a score below the RAGTruth-calibrated threshold flags the answer as unfaithful.
+**Faithfulness** is computed for *every* run, independent of strategy, by the Vectara HHEM model: the
+retrieved chunk texts form the premise, the answer the hypothesis, and a score below a **fixed**
+threshold (`hhem_threshold`, an empirical operating point — no longer RAGTruth-calibrated) flags the
+answer as unfaithful.
 
-**Cost and efficiency.** Each run records billed dollar cost, input/output token counts, latency, and
-trajectory length (number of retrievals). From these, two aggregate measures matter most:
-`total_cost_usd` and **`cost_per_correct`** — dollars spent per correct answer. Cost-per-correct has
-no precedent in the surveyed literature and is presented as a contribution of this study (Gap 2: across
-nineteen surveyed papers, dollar cost is almost never reported and cost-per-correct never). Finally,
-`pct_failed` records the fraction of runs that crashed; the **policy is that a crash counts as a wrong
-answer** (failed runs stay in the accuracy denominator), with the failure rate surfaced explicitly
-rather than hidden.
+**Cost and efficiency.** Each run records billed dollar cost, token counts, latency and trajectory
+length. Two aggregates matter most: `total_cost_usd` and **`cost_per_correct`** — dollars per correct
+answer, which has no precedent in the surveyed literature and is presented as a contribution (Gap 2).
+`pct_failed` records crashes; the **policy is that a crash counts as wrong** (failed runs stay in the
+accuracy denominator), with the rate surfaced rather than hidden.
 
 ## 3.8 Reproducibility, provenance and ethics
 
 ```mermaid
 flowchart LR
-    ING["ingest<br/>MultiHop + RAGTruth"]:::step --> IDX["index corpus<br/>OpenSearch HNSW"]:::step
-    IDX --> CAL["calibrate HHEM<br/>(RAGTruth split)"]:::step
-    CAL --> RUN["run 4 × 3 matrix<br/>frozen SHA · one sample · one image"]:::hub
-    RUN --> MET["compute-metrics"]:::step
-    MET --> JUD["CRAG judge<br/>(fixed judge model)"]:::step
-    JUD --> ANA["analysis notebook<br/>N1–N5 → figures"]:::out
+    ING["ingest · MultiHop + MuSiQue"]:::step --> IDX["index corpora · OpenSearch HNSW<br/>(separate MuSiQue index)"]:::step
+    IDX --> RUN["run the two studies<br/>frozen SHA · one sample/dataset · one image"]:::hub
+    RUN --> MET["compute-metrics + metrics-by-type"]:::step
+    MET --> ANA["analysis notebook · N1–N5 → figures"]:::out
     classDef step fill:#e0f2f1,stroke:#00695c,color:#004d40
     classDef hub fill:#fff3e0,stroke:#e65100,color:#bf360c
     classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
 ```
-*Figure 3.6 — The reproducible, idempotent evaluation pipeline. Each stage is re-runnable; the matrix runs once on a frozen commit, single sample and single image build (protocol P1/P2).*
+*Figure 3.7 — The reproducible, idempotent pipeline. Each stage re-runs safely; the matrix runs once on a frozen commit, one sample per dataset and one image build (protocol P1/P2).*
 
-Reproducibility is treated as a hard requirement, not an aspiration. The whole stack is Dockerised
-(OpenSearch, Postgres, Phoenix, and the application container), and ingest, indexing, experiment
-execution and metric computation are all **idempotent and resumable**: re-running a command resumes
-where it stopped, guaranteed by a uniqueness constraint on `(experiment, system, query)` so that an
-interrupted matrix never double-charges for completed work. Each experiment persists a **provenance
-fingerprint** in its configuration snapshot: the git commit SHA, the LiteLLM version (so every cost
-figure is attributable to a pricing build), the reranker and retrieval settings, the HHEM threshold,
-and a per-dataset corpus fingerprint recording chunk count and granularity. For the final matrix the
-protocol is to wipe, re-ingest and re-index once, freeze the SHA, and run all twelve configurations
-back-to-back on a single image build against the same index, so the runs are internally consistent.
-Hardware is recorded `[PLACEHOLDER: CPU/RAM — P3]` because the embedder, reranker and faithfulness
-model are CPU-bound and shape the latency figures. Every model call is traced to Phoenix via
-OpenTelemetry for per-query inspection.
+Reproducibility is a hard requirement. The whole stack is Dockerised (OpenSearch, Postgres, Phoenix,
+application), and ingest, indexing, experiment execution and metric computation are **idempotent and
+resumable**: re-running a command resumes where it stopped, guaranteed by a uniqueness constraint on
+`(experiment, system, query)` so an interrupted matrix never double-charges. Each experiment persists a
+**provenance fingerprint**: the git commit SHA, the LiteLLM version (so every cost figure is
+attributable to a pricing build), reranker and retrieval settings, the HHEM threshold, and a
+per-dataset corpus fingerprint (chunk count, granularity). For the final matrix the protocol is to wipe,
+re-ingest and re-index once, freeze the SHA, and run every configuration back-to-back on a single image
+build against the same indices, so the runs are internally consistent. Hardware is recorded
+`[PLACEHOLDER: CPU/RAM — P3]` because the embedder, reranker and faithfulness model are CPU-bound and
+shape latency. Every model call is traced to Phoenix via OpenTelemetry.
 
-Ethically, the study carries low risk: it uses two public research datasets, contains no personal or
-sensitive data, and makes only metered, authorised calls to a commercial model API. The principal
-methodological threats to validity are stated plainly in the relevant sections — the budget-class
-model panel bounds the generality of cross-model claims (§3.5), cross-provider latency carries a
-serving-infrastructure confound and is scoped accordingly (§3.7), and F-tuned's stacked levers mean it
-is read as an engineering ceiling rather than a controlled arm (§3.2).
+Ethically the study is low-risk: it uses public research datasets, contains no personal or sensitive
+data, and makes only metered, authorised commercial-API calls. The principal threats to validity are
+stated plainly: the cost-efficient model panel bounds the generality of cross-model claims (§3.5);
+cross-provider latency carries a serving-infrastructure confound and is scoped to within-model
+comparisons (§3.7); the A↔(B/F/F-seq) budget asymmetry means the clean budget-constant comparisons are
+*among* the multi-query systems and within each Study-2 pair (§3.2); and the MuSiQue retriever finding
+is, in part, a consequence of that benchmark's BM25-mined distractor construction — stated as such
+rather than over-generalised (§4.3).
