@@ -36,13 +36,12 @@ class Settings(BaseSettings):
     # fused context as iterations/sub-questions piled up — the dominant 4-hop failure
     # mode ("retrieved but not in answer context"). A single-list (A) run answers
     # over top_k directly and is unaffected. Env: FUSED_ANSWER_TOP_K.
+    # Held CONSTANT across all fusing systems (B, F, F-seq) so the comparison
+    # isolates orchestration strategy, not the budget knob. NB the ablation
+    # (exp38/39/40) showed the optimum is per-strategy — B@10=0.600 > B@20=0.540,
+    # but F-seq@20=0.540 >> F-seq@10=0.380 — so a single fixed budget trades ~0.06
+    # of B's accuracy for a clean, budget-controlled comparison.
     fused_answer_top_k: int = 20
-    # System B uses a SMALLER budget than the fan-out systems. B accumulates
-    # iteration lists, so a larger fused context pulls in lower-ranked chunks that
-    # dilute the answer — empirically B@20=0.540 vs B@10=0.600 on MuSiQue/DeepSeek
-    # (exp38 vs exp39), the opposite of F/F-seq, which gain from the wider budget.
-    # Env: FUSED_ANSWER_TOP_K_AGENT.
-    fused_answer_top_k_agent: int = 10
     retrieval_pool: int = 20
     # BGE-reranker-v2-m3 (568M params) — top of MTEB rerank as of 2024, free,
     # CPU-tolerable (~50-100ms per pair). Strong open-weight replacement for
