@@ -93,18 +93,21 @@ def _trace_retrieve(query: str, pool: list[dict], reranked: list[dict], mode: st
                 hybrid=_ser(pool, "score"), reranked=reranked_rows)
 
 
-def retrieve(query: str, top_k: int | None = None) -> list[dict]:
+def retrieve(query: str, top_k: int | None = None, semantic_only: bool = False) -> list[dict]:
     """Hybrid first-stage retrieval followed by cross-encoder rerank.
 
-    With `retrieval_semantic_only` on, this short-circuits to a naive dense-kNN-only
-    retriever (no BM25, RRF or rerank) for the weakened-retriever ablation. With
-    `retrieval_stratify_sources` on, the first-stage pool is over-fetched and
-    re-pooled to span sources (see `_stratify_by_source`) before the rerank; off,
-    it is the plain hybrid top-`retrieval_pool`.
+    `semantic_only=True` (or the global `retrieval_semantic_only` flag)
+    short-circuits to a naive dense-kNN-only retriever (no BM25, RRF or rerank).
+    The per-call argument lets one system opt into the weakened retriever while
+    others keep the full pipeline in the same run — System A-minus uses it to be
+    a semantic-search-only counterpart of A. With `retrieval_stratify_sources`
+    on, the first-stage pool is over-fetched and re-pooled to span sources (see
+    `_stratify_by_source`) before the rerank; off, it is the plain hybrid
+    top-`retrieval_pool`.
     """
     top_k = top_k or settings.top_k
     qvec = embed_one(query)
-    if settings.retrieval_semantic_only:
+    if semantic_only or settings.retrieval_semantic_only:
         out = knn_search(qvec, top_k=top_k)
         _trace_retrieve(query, out, out, "semantic-only")
         return out

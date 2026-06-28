@@ -56,10 +56,12 @@ notebooks/analysis.py           # Marimo notebook for Chapter 4 figures
 
 ## The systems
 
-Lineup: **A** (naive), **B** (agentic single-tool loop), **F** (PARALLEL query
-decomposition), **F-seq** (SEQUENTIAL self-ask decomposition — resolves each hop
-and carries the bridge answer forward into the next; shares F's few-shot
-decomposer). Faithfulness (HHEM) is computed for every run, not by a system
+Lineup: **A** (naive), **A-minus** (naive over a dense-kNN **semantic-search-only**
+retriever — no BM25/RRF/rerank; A-minus-vs-A isolates the retrieval-pipeline
+effect), **B** (agentic single-tool loop), **F** (PARALLEL query decomposition),
+**F-seq** (SEQUENTIAL self-ask decomposition — resolves each hop and carries the
+bridge answer forward into the next; shares F's few-shot decomposer).
+Faithfulness (HHEM) is computed for every run, not by a system
 — the old passive Systems C/D were folded into that metric. System E (vendored
 OpenRag) was removed; see top-of-file note.
 
