@@ -114,6 +114,13 @@
     svg.chart .mut { fill:var(--muted); }
     .cmpbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:10px 0; }
     .cmpbar select { width:auto; }
+    .dsseg { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; margin:14px 0 2px; }
+    .dsseg button { background:#fff; border:0; border-left:1px solid var(--line); padding:7px 18px;
+                    cursor:pointer; font:inherit; color:var(--muted); }
+    .dsseg button:first-child { border-left:0; }
+    .dsseg button.active { background:var(--accent); color:#fff; font-weight:600; }
+    .dschip { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600;
+              background:var(--code); color:var(--muted); margin-right:4px; }
   </style>
 </head>
 <body>
@@ -160,9 +167,9 @@
 
     <section id="tab-experiments" class="tab">
       <h2>Experiments</h2>
-      <p class="muted">Created via <code>python -m src.cli run-experiment</code>. Click a row to open the results dashboard. Tick rows and <em>Compare selected</em> for cross-model rank stability.</p>
+      <p class="muted">Created via <code>python -m src.cli run-experiment</code>. Click a row to open the results dashboard — results are segregated per dataset (MultiHop / MuSiQue) so the two are never pooled. Tick rows and <em>Compare selected</em> for cross-model rank stability.</p>
       <table id="exp-table"><thead><tr>
-        <th>✓</th><th>ID</th><th>Name</th><th>Started</th><th>Finished</th>
+        <th>✓</th><th>ID</th><th>Name</th><th>Datasets</th><th>Started</th><th>Finished</th>
       </tr></thead><tbody></tbody></table>
       <div id="compare-bar"></div>
       <div id="compare-result"></div>
@@ -426,18 +433,24 @@
 
     async function loadExperiments() {
       const tbody = document.querySelector('#exp-table tbody');
-      tbody.innerHTML = '<tr><td colspan="5" class="muted">loading…</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">loading…</td></tr>';
       const r = await fetch('/api/experiments');
       const data = await r.json();
       window.EXPS = data;
       const click = id => `onclick="loadExpDetail(${id})"`;
       tbody.innerHTML = data.length
-        ? data.map(e => `<tr class="clickable">
+        ? data.map(e => {
+            const dsCells = (e.datasets || []).length
+              ? e.datasets.map(d => `<span class="dschip">${escape(d)}</span>`).join('')
+              : '<span class="muted">—</span>';
+            return `<tr class="clickable">
             <td onclick="event.stopPropagation()"><input type="checkbox" class="exp-cb" value="${e.id}" onchange="updateCompareBar()"></td>
             <td ${click(e.id)}>${e.id}</td><td ${click(e.id)}>${escape(e.name)}</td>
+            <td ${click(e.id)}>${dsCells}</td>
             <td ${click(e.id)}>${fmt(e.started_at)}</td><td ${click(e.id)}>${fmt(e.finished_at) || '<span class="muted">—</span>'}</td>
-          </tr>`).join('')
-        : '<tr><td colspan="5" class="muted">No experiments yet. Run one via the CLI.</td></tr>';
+          </tr>`;
+          }).join('')
+        : '<tr><td colspan="6" class="muted">No experiments yet. Run one via the CLI.</td></tr>';
       document.getElementById('exp-detail').innerHTML = '';
       updateCompareBar();
     }
@@ -468,20 +481,28 @@
         res.innerHTML = renderCompare(d);
       } catch (e) { res.innerHTML = `<div class="error">${e.message}</div>`; }
     }
-    async function loadExpDetail(id) {
+    async function loadExpDetail(id, dataset) {
       const detail = document.getElementById('exp-detail');
       detail.innerHTML = '<p class="muted">loading…</p>';
+      const exp = (window.EXPS || []).find(e => e.id === id);
+      const datasets = (exp && (exp.datasets || []).length) ? exp.datasets : ['multihop'];
+      const ds = (dataset && datasets.includes(dataset)) ? dataset : datasets[0];
+      const qs = `?dataset=${encodeURIComponent(ds)}`;
       const [mr, an, rr, bt] = await Promise.all([
         fetch(`/api/experiments/${id}/metrics`).then(r => r.json()),
-        fetch(`/api/experiments/${id}/analysis`).then(r => r.json()).catch(() => ({ per_system: [], pareto: [], agreement: null })),
-        fetch(`/api/experiments/${id}/runs`).then(r => r.json()),
-        fetch(`/api/experiments/${id}/by-type`).then(r => r.json()).catch(() => []),
+        fetch(`/api/experiments/${id}/analysis${qs}`).then(r => r.json()).catch(() => ({ per_system: [], pareto: [], agreement: null })),
+        fetch(`/api/experiments/${id}/runs${qs}`).then(r => r.json()),
+        fetch(`/api/experiments/${id}/by-type${qs}`).then(r => r.json()).catch(() => []),
       ]);
-      window.CURRENT_EXP = id; window.RUNS = rr; window.ANALYSIS = an; window.METRICS = mr; window.BYTYPE = bt;
-      const exp = (window.EXPS || []).find(e => e.id === id);
+      window.CURRENT_EXP = id; window.CURRENT_DATASET = ds;
+      window.RUNS = rr; window.ANALYSIS = an; window.METRICS = (mr || []).filter(m => m.dataset === ds); window.BYTYPE = bt;
+
+      const dsToggle = datasets.length > 1
+        ? `<div class="dsseg">${datasets.map(d => `<button class="${d === ds ? 'active' : ''}" onclick="loadExpDetail(${id}, '${escape(d)}')">${escape(d)}</button>`).join('')}</div>`
+        : `<div style="margin:14px 0 2px"><span class="dschip">${escape(ds)}</span></div>`;
 
       const tabs = [['overview', 'Overview'], ['accuracy', 'Accuracy'], ['cost', 'Cost & latency'], ['failures', 'Failures'], ['runs', `Runs (${rr.length})`]];
-      detail.innerHTML = renderProvenance(exp)
+      detail.innerHTML = renderProvenance(exp) + dsToggle
         + `<div class="subnav">${tabs.map((t, i) => `<button data-pane="${t[0]}" class="${i === 0 ? 'active' : ''}">${t[1]}</button>`).join('')}</div>`
         + tabs.map(t => `<div id="dpane-${t[0]}" class="dpane${t[0] === 'overview' ? ' active' : ''}"></div>`).join('');
 

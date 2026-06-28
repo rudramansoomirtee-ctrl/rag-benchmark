@@ -25,16 +25,29 @@ def _answer_cands(q) -> list[str]:
 
 @router.get("/experiments")
 def list_experiments():
+    from collections import defaultdict
+
     session = get_session()
     try:
         rows = session.scalars(
             select(Experiment).order_by(Experiment.id.desc())
         ).all()
+        # Datasets actually present in each experiment's runs (the dashboard
+        # segregates by these). Falls back to the config snapshot for experiments
+        # whose runs haven't landed yet.
+        ds_by_exp: dict[int, list[str]] = defaultdict(list)
+        for eid, ds in session.execute(
+            select(Run.experiment_id, Query.dataset)
+            .join(Query, Run.query_id == Query.id)
+            .distinct()
+        ).all():
+            ds_by_exp[eid].append(ds)
         return [
             {
                 "id": e.id,
                 "name": e.name,
                 "config": e.config_json,
+                "datasets": sorted(ds_by_exp.get(e.id) or (e.config_json or {}).get("datasets") or []),
                 "started_at": e.started_at.isoformat() if e.started_at else None,
                 "finished_at": e.finished_at.isoformat() if e.finished_at else None,
             }
@@ -45,19 +58,20 @@ def list_experiments():
 
 
 @router.get("/experiments/{exp_id}/runs")
-def runs(exp_id: int, limit: int = 2000):
+def runs(exp_id: int, limit: int = 2000, dataset: str | None = None):
     from src.evaluation.metrics import token_f1
     from src.evaluation.stats import covered
 
     session = get_session()
     try:
-        rows = session.execute(
+        stmt = (
             select(Run, Query)
             .join(Query, Run.query_id == Query.id)
             .where(Run.experiment_id == exp_id)
-            .order_by(Run.id)
-            .limit(limit)
-        ).all()
+        )
+        if dataset:
+            stmt = stmt.where(Query.dataset == dataset)
+        rows = session.execute(stmt.order_by(Run.id).limit(limit)).all()
         out = []
         for r, q in rows:
             cov = covered(r.all_retrieved_chunk_ids or r.retrieved_chunk_ids, q.relevant_chunk_ids)
@@ -166,11 +180,12 @@ def replay_run(exp_id: int, run_id: int):
 
 
 @router.get("/experiments/{exp_id}/by-type")
-def by_type(exp_id: int):
+def by_type(exp_id: int, dataset: str | None = None):
     """Per-question-type accuracy breakdown (inference/comparison/temporal/null).
 
     Computed on the fly from runs + queries.metadata['question_type'] — same logic
-    as the `metrics-by-type` CLI, surfaced for the SPA.
+    as the `metrics-by-type` CLI, surfaced for the SPA. Scoped to one `dataset`
+    when given, so MultiHop question types and MuSiQue hop counts never mix.
     """
     from collections import defaultdict
     from src.evaluation.metrics import exact_match, token_f1, _post_marker
@@ -178,9 +193,10 @@ def by_type(exp_id: int):
 
     session = get_session()
     try:
-        rows = session.execute(
-            select(Run, Query).join(Query, Run.query_id == Query.id).where(Run.experiment_id == exp_id)
-        ).all()
+        stmt = select(Run, Query).join(Query, Run.query_id == Query.id).where(Run.experiment_id == exp_id)
+        if dataset:
+            stmt = stmt.where(Query.dataset == dataset)
+        rows = session.execute(stmt).all()
         grouped = defaultdict(list)
         for r, q in rows:
             grouped[(r.system, _question_type(q))].append((r, q))
@@ -239,12 +255,13 @@ def _nan_to_none(v):
 
 
 @router.get("/experiments/{exp_id}/analysis")
-def analysis(exp_id: int):
+def analysis(exp_id: int, dataset: str | None = None):
     """Per-system analytical depth for one experiment, computed server-side with the
     canonical scoring code (mirrors notebook cells N2/N3/N4/N5): accuracy + bootstrap CI,
     Token-F1/EM, CRAG, P@5/R@5, retrieval-coverage ceiling + retrieval-vs-generation
     failure attribution, cost & latency dispersion, the cost-accuracy Pareto frontier,
-    and the metric-agreement matrix."""
+    and the metric-agreement matrix. Scoped to one `dataset` when given so MultiHop and
+    MuSiQue results are never pooled into the same numbers."""
     import statistics
     from collections import defaultdict
     from src.evaluation.metrics import (
@@ -255,9 +272,10 @@ def analysis(exp_id: int):
 
     session = get_session()
     try:
-        rows = session.execute(
-            select(Run, Query).join(Query, Run.query_id == Query.id).where(Run.experiment_id == exp_id)
-        ).all()
+        stmt = select(Run, Query).join(Query, Run.query_id == Query.id).where(Run.experiment_id == exp_id)
+        if dataset:
+            stmt = stmt.where(Query.dataset == dataset)
+        rows = session.execute(stmt).all()
     finally:
         session.close()
 
