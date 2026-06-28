@@ -24,9 +24,10 @@ Legend: ✅ on point · ⚠️ partial (wording fix or pending run) · ❌ missi
 | S1 | System A — naive (`systems/system_a.py`) |
 | S2 | System B — LangGraph iterative agent (`systems/system_b.py`) |
 | S3 | System F — query decomposition (`systems/system_f.py`) |
-| S4 | System F-tuned — stacked levers (`systems/system_f_tuned.py`) |
-| "3 LLMs / model tiers" | Per repo evidence: Haiku 4.5, Nova Lite, Qwen3 — **CONFIRM final matrix models** |
-| "1 fixed retriever" | `retrieval/retrieve.py:retrieve` — hybrid BM25+dense+RRF + cross-encoder rerank, shared by all systems |
+| S4 | ~~System F-tuned~~ **removed → replaced by F-seq** (sequential self-ask, `systems/system_fseq.py`). See §5c. F-tuned historical runs (exp18-26) remain in DB |
+| (new) | **A-minus / B-minus** — A and B over a semantic-kNN-only retriever (`system_a_minus.py`, `SystemB(semantic_only=True)`); the retrieval-pipeline ablation axis. See §5c |
+| "3 LLMs / model tiers" | Per repo evidence: Haiku 4.5, Nova Lite, Qwen3, **DeepSeek-V3** (§5c program) — **CONFIRM final matrix models** |
+| "1 fixed retriever" | `retrieval/retrieve.py:retrieve` — hybrid BM25+dense+RRF + cross-encoder rerank, shared by A/B/F/F-seq; A-minus/B-minus deliberately use dense-kNN only (`semantic_only=True`) for the retrieval ablation |
 
 ---
 
@@ -244,6 +245,96 @@ runs the improved systems; historical runs in the DB predate them):
 - F-tuned's residual deltas vs F: per-query top-10 pools (same as F now) + weighted
   RRF + source fan-out + reserved slots + CoT prompt (decomposer no longer a delta).
 - W7 framing unchanged: F-tuned stays the stacked engineering ceiling.
+
+## 5c. Retrieval × orchestration program (2026-06-28) — F-seq, A-minus/B-minus, ablations
+
+Run on **DeepSeek-V3** (`bedrock/deepseek.v3-v1:0`) over **MuSiQue** (pooled-distractor,
+index `rag-chunks-musique`) and **MultiHop-RAG** (`rag-chunks`), on the standardized
+improved pipeline. Comparisons use the SAME query set per dataset (MuSiQue: the 50
+ids in exp36 `config_json.selection`, reused via `--query-ids`; MultiHop:
+`--sample 50 --seed 42`).
+
+### Lineup change
+- **F-tuned removed → F-seq** (`systems/system_fseq.py`): SEQUENTIAL self-ask
+  decomposition — resolves each hop, substitutes the resolved bridge answer into the
+  next hop's retrieval query (fixes F's dead-bridge "that director" problem), answers
+  over the RRF-fused union of all hops. Shares F's `DECOMPOSE_FEWSHOT_PROMPT`/`_decompose`.
+- **Added A-minus / B-minus**: A and B over a dense-kNN-only retriever (no BM25/RRF/rerank)
+  via a new per-call `retrieve(semantic_only=True)`. The **retrieval-pipeline axis**,
+  orthogonal to orchestration.
+- `SYSTEM_REGISTRY` = A, A-minus, B, B-minus, F, F-seq.
+
+### Tier-1 answer-quality changes (lift every system sharing `ANSWER_SYSTEM_PROMPT`)
+1. **Softened answer prompt** — licenses synthesis-derived answers; refuses only when a
+   required fact is genuinely absent (cut F's refusal rate 50%→38% on MuSiQue). Keeps
+   the `Final answer:` scoring contract intact.
+2. **`fused_answer_top_k` 10→20**, held CONSTANT across B/F/F-seq (a 10-slot fused
+   context was evicting retrieved gold — the dominant 4-hop failure, confirmed at
+   chunk level in exp37: gold retrieved-but-not-in-answer-context).
+3. **Unicode-dash normalization** in `metrics._normalize` (`1943-1992` now matches gold
+   `1943–1992`); verified refusals still score wrong.
+
+### Budget-sensitivity ablation (MuSiQue, n=50) — exp38/39/40
+| System | @10 | @20 | optimum |
+|---|---|---|---|
+| B (iterative) | 0.600 | 0.540 | **10** |
+| F (parallel decomp) | 0.340 | 0.400 | **20** |
+| F-seq (sequential decomp) | 0.380 | 0.540 | **20** |
+
+Per-strategy optimum differs (iterative accumulation dilutes with a wide budget;
+fan-out needs it). **Decision: budget held CONSTANT at 20** for a controlled comparison
+(trades ~0.06 of B's tuned accuracy for comparability). Lives in `config.fused_answer_top_k`.
+
+### Headline result — retrieval × orchestration is dataset-dependent (DeepSeek-V3)
+**MuSiQue 2×2 (n=50; exp38 hybrid, exp41/43 semantic-only):**
+| | hybrid+rerank | semantic-only | semantic − hybrid |
+|---|---|---|---|
+| naive (A / A-minus) | 0.380 | 0.420 | +0.04 |
+| iterative (B / B-minus) | 0.540 | **0.640** | +0.10 |
+
+**MultiHop-RAG (n=50; exp42):** A (hybrid+rerank) **0.800** vs A-minus (semantic-only)
+0.600 → **+0.20** for the pipeline (gold recall@10 0.665 vs 0.456).
+
+**Finding:** the value of the hybrid+rerank pipeline is **dataset-dependent**. On news
+(MultiHop) it is worth **+0.20**; on MuSiQue it is flat-to-negative, and **dense-only +
+iteration is best — B-minus 0.640, the top MuSiQue score**, above B and F-seq (0.540).
+*Mechanism:* MuSiQue's hard distractors are **BM25-mined** (Trivedi 2022 — RELATED_WORK
+§8), so the lexical component is adversarial *by construction*; iteration compounds the
+lexical noise under hybrid but not under semantic-only (semantic−hybrid widens +0.04→+0.10).
+
+### Multi-hop orchestration (MuSiQue, hybrid, exp38) — by hop
+F-seq is the strongest decomposition system on deep hops — 3-hop **0.600**, 4-hop
+**0.444** (vs F 0.467/0.111; up to 4× on 4-hop). B leads 2-hop (0.615). F-seq ties B
+overall (0.540) at ~55% of B's cost. (F-seq-vs-F = parallel-vs-sequential; F-seq-vs-B =
+pre-decomposed self-ask vs free-form iteration.)
+
+### Data integrity (MuSiQue) — verified clean
+3,000 chunks = 150 questions × 20 paragraphs (exact); all 399 gold supporting
+paragraphs present as chunks (0 missing); OpenSearch `rag-chunks-musique` = 3,000 =
+Postgres. Retrieval searches the full pooled corpus (each query's 20 + cross-question
+distractors) — the intended anti-shortcut setting.
+
+### Caveats (must accompany any claim)
+- **n=50** per dataset; hop buckets as small as 9 (4-hop); several deltas are 2–5
+  queries. **Confirm the headline retriever×orchestration result at `--sample 500`.**
+- **DeepSeek-V3-specific.** Re-run on Haiku/another model before generalizing.
+- The MuSiQue "semantic > hybrid" effect is **partly by construction** (BM25-mined
+  distractors). State as "on benchmarks whose distractors are BM25-mined," not "all
+  adversarial multi-hop."
+- Cross-dataset comparison is of the A-vs-A-minus *deltas* (different query sets per
+  dataset) — valid; absolute MuSiQue vs MultiHop numbers are not directly comparable.
+
+### Experiment ID map (DeepSeek-V3)
+| exp | systems | dataset | note |
+|---|---|---|---|
+| 36 | A,B,F | MuSiQue | pre-Tier-1 baseline (B@10, old prompt) |
+| 37 | B (8 steps) | MuSiQue | step ablation — worse (0.52); archived |
+| 38 | A,B,F,F-seq | MuSiQue | Tier-1, budget 20 |
+| 39 | B (@10) | MuSiQue | budget ablation |
+| 40 | F,F-seq (@10) | MuSiQue | budget ablation |
+| 41 | A-minus | MuSiQue | semantic-only naive |
+| 42 | A,A-minus | MultiHop | retrieval-pipeline effect on news |
+| 43 | B-minus | MuSiQue | semantic-only iterative (best MuSiQue, 0.640) |
 
 ## 6. Bottom line
 
