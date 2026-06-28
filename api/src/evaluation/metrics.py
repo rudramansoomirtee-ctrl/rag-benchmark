@@ -83,10 +83,18 @@ def hit_at_k(retrieved: list[str], relevant: list[str], k: int = 10) -> float:
     return 1.0 if any(_article_id(r) in relevant_set for r in retrieved[:k]) else 0.0
 
 
+# Unicode dashes/minus that ASCII `string.punctuation` does NOT cover. Without
+# this, a hyphen prediction ('1943-1992' → '19431992') failed to match an en-dash
+# gold ('1943–1992'), which kept its en-dash through normalization and stayed
+# distinct — a silent miss on every numeric/date range. Stripping them alongside
+# ASCII punctuation unifies all dash forms (qid=17778, MuSiQue date ranges).
+_UNICODE_DASHES = "‐‑‒–—―−"
+
+
 def _normalize(s: str) -> str:
     s = s.lower().strip()
     s = re.sub(r"\s+", " ", s)
-    s = s.translate(str.maketrans("", "", string.punctuation))
+    s = s.translate(str.maketrans("", "", string.punctuation + _UNICODE_DASHES))
     return s
 
 

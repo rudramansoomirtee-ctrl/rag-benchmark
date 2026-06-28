@@ -30,10 +30,18 @@ class Settings(BaseSettings):
     embedding_dim: int = 768
     opensearch_index: str = "rag-chunks"
     top_k: int = 10
-    # Answer-context budget for systems fusing multiple ranked lists (B, F): they
-    # answer over the fused top-N. Configurable so it can be swept (budget
-    # sensitivity). A single-list (A) run answers over top_k directly.
-    fused_answer_top_k: int = 10
+    # Answer-context budget for systems fusing multiple ranked lists (B, F, F-seq):
+    # they answer over the fused top-N. Raised 10→20 after chunk-level analysis of
+    # exp36/37 showed gold chunks that WERE retrieved getting evicted from a 10-slot
+    # fused context as iterations/sub-questions piled up — the dominant 4-hop failure
+    # mode ("retrieved but not in answer context"). A single-list (A) run answers
+    # over top_k directly and is unaffected. Env: FUSED_ANSWER_TOP_K.
+    # Held CONSTANT across all fusing systems (B, F, F-seq) so the comparison
+    # isolates orchestration strategy, not the budget knob. NB the ablation
+    # (exp38/39/40) showed the optimum is per-strategy — B@10=0.600 > B@20=0.540,
+    # but F-seq@20=0.540 >> F-seq@10=0.380 — so a single fixed budget trades ~0.06
+    # of B's accuracy for a clean, budget-controlled comparison.
+    fused_answer_top_k: int = 20
     retrieval_pool: int = 20
     # BGE-reranker-v2-m3 (568M params) — top of MTEB rerank as of 2024, free,
     # CPU-tolerable (~50-100ms per pair). Strong open-weight replacement for

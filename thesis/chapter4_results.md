@@ -1,252 +1,309 @@
-# Chapter 4 — Results (SCAFFOLD)
+# Chapter 4 — Results
 
-> **This is a scaffold, not a draft.** The frozen 4×3 matrix has not been run, so there are no
-> numbers yet — and none are invented here. Every table is a shell with `[INSERT …]` cells; every
-> figure is a placeholder naming the exact notebook cell that produces it; every paragraph is a
-> *template* with the interpretation written conditionally ("if X > Y, then …") so that once you run
-> the matrix and `export`, you fill blanks rather than write from scratch.
+> **Status: scaffold + pilot evidence.** The frozen final matrix (Qwen3-32B · DeepSeek-V3 · Nova Lite,
+> over MuSiQue + MultiHop-RAG) has **not** been run, so the headline tables are `[INSERT …]` shells.
+> Where this session produced **real pilot runs** (DeepSeek-V3, *n*=50, exp36–43), those numbers are
+> shown in clearly-labelled **Pilot** boxes — they are measured, not invented, and they motivate the
+> design; the frozen matrix supersedes them. No number outside a Pilot box is invented.
 >
-> **To populate this chapter, run (your environment):**
+> **To populate the final tables (your environment):**
 > 1. `alembic upgrade head`
-> 2. the matrix — all 12, each prefixed `GIT_SHA=$(git rev-parse HEAD)`, on **one** image build,
->    over **one** fixed seeded stratified sample (audit P1/P2).
-> 3. `compute-metrics --experiment N` (each) → populates accuracy, Token F1, cost, `pct_failed`.
-> 4. `judge --experiment N` (each, fixed `JUDGE_MODEL`) → CRAG.
-> 5. run `notebooks/analysis.py` → produces figures F1–F4 / tables from cells N1–N5.
-> 6. `export --experiment N` → JSON to paste numbers from.
->
-> Then hand me the exports and I'll write the real prose into this skeleton.
+> 2. the frozen matrix (Study 1 + Study 2 below), each run prefixed `GIT_SHA=$(git rev-parse HEAD)`,
+>    on **one** image build, over **one** seeded stratified sample per dataset, local `bge` reranker.
+> 3. `compute-metrics --experiment N` (each) → accuracy, Token F1, cost, `pct_failed`.
+> 4. `metrics-by-type --experiment N` → per question-type / per hop-count.
+> 5. `notebooks/analysis.py` → figures F1–F5 from cells N1–N5.
+> 6. `export --experiment N` → JSON to paste from.
 
-Marking hook: **Analysis of findings is the highest-weighted criterion (/30).** Each section below is
-already mapped to one research question and one implemented notebook cell, so the analysis is wired to
-evidence, not assertion.
+**Marking hook: analysis of findings is the highest-weighted criterion (/30).** Every section is mapped
+to one research question and one notebook cell, so analysis is wired to evidence, not assertion.
 
 ---
 
-## 4.1 Overview of the executed matrix
+## 4.1 Overview of the executed evaluation
 
-State, in one short paragraph, exactly what was run, so the chapter's comparability rests on recorded
-fact rather than claim. Confirm from `experiments.config_json`:
+The evaluation comprises **two studies over one frozen substrate**, reported separately because they
+manipulate different variables:
 
-| Provenance field | Value |
-|---|---|
-| Git SHA (all 12 runs) | `[INSERT — must be identical across runs]` |
-| Sample size *N* / seed | `[INSERT]` / `[INSERT]` |
-| Stratification | by question type (Inference / Comparison / Temporal / Null) |
-| Identical `query_ids` across all 12 | `[INSERT: confirmed yes/no]` |
-| Image build / LiteLLM version | `[INSERT]` |
-| Hardware (CPU / RAM) | `[INSERT — P3]` |
-
-> Template sentence: "All twelve configurations were evaluated against an identical, seeded
-> stratified sample of *N* = `[INSERT]` MultiHop-RAG questions at commit `[INSERT]`, confirming the
-> single-sample comparability invariant (§3.6)."
-
----
-
-## 4.2 Accuracy by orchestration strategy and question type — RQ1
-
-*Evidence: `compute-metrics` (containment primary); `metrics-by-type` / N2.*
-
-**Table 4.1 — Containment accuracy, 4 systems × 3 models.**
-
-| System | Haiku 4.5 | Nova Lite | Qwen3 | Row mean |
-|---|---|---|---|---|
-| A (naive)     | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| B (iterative) | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| F (decompose) | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| F-tuned       | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-
-**Table 4.2 — Accuracy by question type** (pick the most-discussed model, or report all three in an
-appendix table):
-
-| System | Inference | Comparison | Temporal | Null | Overall |
-|---|---|---|---|---|---|
-| A | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| B | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| F | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| F-tuned | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-
-**Figure 4.1** — grouped bar chart, accuracy by system grouped by question type.
-
-**Analysis template (~400 words).** Anchor every claim to the A/B/F single-variable contrast (§3.2):
-- *Decomposition effect (F vs A):* "Decomposition changed accuracy by `[INSERT Δ]` points
-  (`[INSERT A]` → `[INSERT F]`). As retriever, generator and context budget are held constant, this
-  isolates the decomposition lever." If F > A, relate the gain to Ammann et al.'s reported
-  MRR@10 +36.7% / F1 +11.6% (note: different stack — see §3.3, *not* a replication). If F ≈ A,
-  discuss whether the budget model's decompositions were lower-quality than Qwen-32B's.
-- *Iteration effect (B vs A):* "Iterative reformulation changed accuracy by `[INSERT Δ]`." Tie to the
-  IRCoT/Iter-RetGen family; note the ≤5-step budget and budget-model setting.
-- *B vs F:* the cleanest sentence in the chapter — sequential conditioned reformulation vs parallel
-  upfront decomposition, all else equal. State which wins and by how much.
-- *Question type:* expect Comparison/Temporal (multi-hop) to benefit most from B/F; expect **Null**
-  to be where over-answering shows — if B/F drop on Null vs A, that is the over-answering finding
-  (cf. RAG-vs-GraphRAG: graph/iterative retrieval over-answers nulls, `RELATED_WORK.md §2`).
-- *F-tuned:* report as the engineering ceiling; do **not** read its margin as a single-lever effect.
-
----
-
-## 4.3 Answer-quality metrics and the metric audit — A4 / O6
-
-*Evidence: `compute-metrics` (`avg_token_f1`, `accuracy_exact`, `crag_score`); N4 agreement matrix.*
+- **Study 1 — Orchestration** (RQ1–RQ4). The retriever is held constant (hybrid BM25+dense+RRF+rerank);
+  the four orchestration strategies **A, B, F, F-seq** vary only in *how queries are produced and
+  fused*. Run across three models and both datasets.
+- **Study 2 — Retrieval pipeline** (the study's novel contribution). Orchestration is held at its two
+  simplest forms (naive, iterative) and the *retriever* is varied: full hybrid+rerank vs dense-kNN-only.
+  The **A / A-minus / B / B-minus** 2×2, run on both datasets, isolates the value of the retrieval
+  pipeline and its interaction with orchestration.
 
 ```mermaid
 flowchart TB
-    C["<b>PRIMARY</b> — contains_match<br/>deterministic · the headline number<br/>stricter than MultiHop-RAG's official scorer"]:::primary
+    SUB["Frozen substrate · one seeded sample / dataset · local bge reranker · temp 0"]:::fixed
+    SUB --> S1
+    SUB --> S2
+    subgraph S1["Study 1 — Orchestration (retriever fixed)"]
+      direction LR
+      A1["A naive"]:::sys
+      B1["B iterative"]:::sys
+      F1["F parallel-decompose"]:::sys
+      FS1["F-seq sequential-decompose"]:::sys
+    end
+    subgraph S2["Study 2 — Retrieval pipeline (orchestration fixed)"]
+      direction LR
+      AA["A / A-minus"]:::sys2
+      BB["B / B-minus"]:::sys2
+    end
+    S1 --> OUT["accuracy · type/hop · cost-per-correct · ceiling · rank stability"]:::out
+    S2 --> OUT
+    classDef fixed fill:#fce4ec,stroke:#ad1457,color:#880e4f
+    classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
+    classDef sys2 fill:#e0f2f1,stroke:#00695c,color:#004d40
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
+```
+*Figure 4.0 — Two studies on one substrate: Study 1 varies orchestration with the retriever fixed; Study 2 varies the retriever with orchestration fixed.*
+
+**Provenance (confirm from `experiments.config_json`):**
+
+| Field | Value |
+|---|---|
+| Git SHA (all runs) | `[INSERT — identical across runs]` |
+| Models | Qwen3-32B · DeepSeek-V3 · Nova Lite (all AWS Bedrock, LiteLLM SDK, temp 0) |
+| Datasets / *N* / seed | MuSiQue `[INSERT N]` · MultiHop-RAG `[INSERT N]` / `[INSERT seed]` |
+| Reranker | `BAAI/bge-reranker-v2-m3` (local) |
+| Answer-context budget | `fused_answer_top_k = 20`, constant across B/F/F-seq |
+| Identical `query_ids` per dataset across all cells | `[INSERT: confirmed yes/no]` |
+| Hardware (CPU/RAM) | `[INSERT — P3]` |
+
+> Template sentence: "All configurations were evaluated against an identical seeded stratified sample
+> per dataset (MuSiQue *N* = `[INSERT]`; MultiHop-RAG *N* = `[INSERT]`) at commit `[INSERT]`, with the
+> retrieval substrate, answer-context budget and prompts held constant (§3)."
+
+**A note on the model panel (RQ3/RQ4 scope).** The three models are heterogeneous *cost-efficient*
+models spanning a real capability gradient — Nova Lite (weak) < Qwen3-32B (mid) < DeepSeek-V3
+(strong-but-cheap) — not a frontier panel; cross-model claims are framed accordingly (§3.5). One
+panel property is itself a result: **Nova Lite cannot run the decomposition systems** — its
+structured-output decoder parse-fails, so F/F-seq degrade to naive retrieval (pilot: avg 1.1 vs
+3.5–3.7 retrievals). F/F-seq are therefore reported on Qwen3 and DeepSeek-V3 only, and the Nova
+failure is reported as an orchestration-robustness finding (§4.6).
+
+---
+
+## 4.2 Study 1 — Accuracy by orchestration strategy — RQ1
+
+*Evidence: `compute-metrics` (containment primary); `metrics-by-type`; N2.*
+
+**Table 4.1 — Containment accuracy, 4 strategies × 3 models, per dataset.** (Nova F/F-seq = n/a:
+decompose parse-fails — see §4.6.)
+
+| System | \multicolumn — DeepSeek-V3 | Qwen3-32B | Nova Lite |
+|---|---|---|---|
+| A (naive) | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| B (iterative) | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| F (parallel decomp.) | `[INSERT]` | `[INSERT]` | n/a |
+| F-seq (sequential decomp.) | `[INSERT]` | `[INSERT]` | n/a |
+
+*(Produce one Table 4.1 per dataset — MuSiQue and MultiHop-RAG — or stack them.)*
+
+> **Pilot — MuSiQue, DeepSeek-V3, n=50 (exp38; supersedes none, motivates the design):**
+> A 0.380 · B 0.540 · F 0.400 · **F-seq 0.540**. Iteration and sequential decomposition tie at the
+> top; parallel decomposition (F) barely improves on naive (A).
+
+**Table 4.2 — Accuracy by hop count (MuSiQue) / question type (MultiHop)**, most-discussed model:
+
+| System | 2-hop | 3-hop | 4-hop | Overall |
+|---|---|---|---|---|
+| A | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| B | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| F | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| F-seq | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+
+> **Pilot — MuSiQue by hop, DeepSeek-V3, n=50 (exp38):**
+> | | 2-hop | 3-hop | 4-hop |
+> |---|---|---|---|
+> | A | 0.462 | 0.333 | 0.222 |
+> | B | **0.615** | 0.533 | 0.333 |
+> | F | 0.462 | 0.467 | 0.111 |
+> | F-seq | 0.538 | **0.600** | **0.444** |
+> F-seq is strongest on the deep hops (3-/4-hop); B leads 2-hop; F collapses on 4-hop.
+
+**Figure 4.1** — grouped bar chart, accuracy by system grouped by hop/type (N2 / by-type).
+
+**Analysis template (~450 words).** Anchor every claim to the single-variable contrasts (§3.2):
+
+- *Decomposition effect (F vs A):* "Parallel decomposition changed accuracy by `[INSERT Δ]`
+  (`[A]`→`[F]`)." If F ≈ A (as in the pilot), interpret via the bridge problem: F issues bridge
+  sub-questions ("the spouse of *that director*") blind, so later-hop retrievals are weak — relate to
+  Ammann et al.'s stated single-shot limitation (`RELATED_WORK.md §2`).
+- *Sequential vs parallel decomposition (F-seq vs F) — the decomposition carve-out:* "Resolving hops
+  sequentially changed accuracy by `[INSERT Δ]` over parallel F, and by `[INSERT Δ]` on 4-hop
+  questions." This is the cleanest novel contrast in Study 1 (Press et al. self-ask; Zhou et al.
+  least-to-most). State the hop-count interaction: sequential resolution should help *more* as hop
+  depth grows, because each bridge entity is resolved before the next retrieval.
+- *Iteration effect (B vs A):* tie to IRCoT/Iter-RetGen; note the ≤5-step budget.
+- *B vs F-seq:* free-form iterative reformulation vs pre-planned self-ask — both resolve bridges, one
+  adaptively, one by decomposition. State which wins overall and per hop, and at what cost (§4.5).
+- *Null / over-answering (MultiHop):* if B/F/F-seq drop on Null vs A, that is the over-answering
+  finding (cf. RAG-vs-GraphRAG, `RELATED_WORK.md §2`).
+
+---
+
+## 4.3 Study 2 — The retrieval pipeline and its interaction with orchestration (novel contribution)
+
+*Evidence: `compute-metrics`; N3 ceiling. The 2×2 of retriever {hybrid+rerank, semantic-only} ×
+orchestration {naive, iterative}.*
+
+This study isolates the value of the hybrid+rerank pipeline by comparing each system to its
+semantic-kNN-only twin (A-minus, B-minus), on both datasets. It is the study's distinctive result:
+**the value of the retrieval pipeline is dataset-dependent and interacts with orchestration.**
+
+**Table 4.3 — Retriever × orchestration 2×2 (containment accuracy), per dataset, per model.**
+
+| | hybrid+rerank | semantic-only | Δ (semantic − hybrid) |
+|---|---|---|---|
+| naive (A / A-minus) | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| iterative (B / B-minus) | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+
+> **Pilot — DeepSeek-V3, n=50 (exp38/41/42/43):**
+> | Dataset | A (hybrid) | A-minus (sem.) | B (hybrid) | B-minus (sem.) |
+> |---|---|---|---|---|
+> | **MultiHop-RAG** (news) | **0.800** | 0.600 | — | — |
+> | **MuSiQue** (anti-shortcut) | 0.380 | 0.420 | 0.540 | **0.640** |
+>
+> On news the pipeline is worth **+0.20** (A vs A-minus); on MuSiQue it is flat-to-negative, and
+> **dense-only + iteration (B-minus 0.640) is the best system on MuSiQue**. The semantic−hybrid gap
+> *widens* with iteration (+0.04 naive → +0.10 iterative).
+
+**Figure 4.5** — clustered bars: accuracy by retriever, grouped by dataset, with the naive/iterative
+pair side by side. **The figure that carries the novel finding.**
+
+**Analysis template (~400 words).**
+- *Dataset-dependence:* "Hybrid+rerank improved naive accuracy by `[INSERT Δ]` on MultiHop-RAG but
+  `[INSERT Δ]` on MuSiQue." Ground this in BEIR's domain-dependence of BM25 vs dense
+  (`RELATED_WORK.md §8`, Thakur et al. 2021) — no universal best retriever.
+- *Mechanism (cite, don't assert):* MuSiQue's hard distractors are **BM25-mined with intermediate
+  answers masked** (`RELATED_WORK.md §8`, Trivedi et al. 2022) — the lexical component is adversarial
+  *by construction*, so adding BM25+rerank surfaces distractors. State explicitly: the paper supports
+  the *premise* (BM25-adversarial distractors); the *conclusion* (dense+iteration wins on answering)
+  is this study's contribution. Frame as "on benchmarks whose distractors are BM25-mined," not "all
+  adversarial multi-hop."
+- *Interaction with orchestration:* "The semantic-over-hybrid advantage grew from `[INSERT]` (naive)
+  to `[INSERT]` (iterative)" — iteration compounds the lexical-distractor noise under hybrid but not
+  under semantic-only (error-propagation framing, `RELATED_WORK.md §8` ⚠ verify before quoting).
+- *Practical takeaway:* a deployable recommendation — match the retriever to the corpus: hybrid+rerank
+  on lexically-honest corpora (news), dense + iteration on adversarial multi-hop.
+
+---
+
+## 4.4 Answer-quality metrics and the metric audit — A4 / O6
+
+*Evidence: `compute-metrics` (`avg_token_f1`, `accuracy_exact`); N4 agreement matrix. CRAG judge
+omitted by design (secondary; cost-saving) — disclose.*
+
+```mermaid
+flowchart TB
+    C["<b>PRIMARY</b> — contains_match<br/>deterministic · headline number<br/>stricter than MultiHop-RAG's official scorer"]:::primary
     C --> E["exact_match<br/>strict string equality"]:::sec
     C --> T["token_f1<br/>SQuAD lexical overlap"]:::sec
-    C --> J["CRAG judge<br/>LLM · 4-way human rubric"]:::sec
     classDef primary fill:#fff3e0,stroke:#e65100,color:#bf360c
     classDef sec fill:#ede7f6,stroke:#4527a0,color:#311b92
 ```
-*Figure 4.2a — The correctness-metric pyramid: one deterministic primary plus three secondaries. §4.3 measures how often they agree (the divergence audit, A4).*
+*Figure 4.2 — Correctness-metric pyramid: one deterministic primary plus two lexical secondaries. §4.4 measures how often they agree (divergence audit, A4). (MuSiQue uses `answer_match` — containment plus aliases and bidirectional terse-answer matching.)*
 
-**Table 4.3 — Answer-quality metrics** (one model, or appendix the rest):
+**Table 4.4 — Answer-quality metrics** (one model/dataset; appendix the rest):
 
-| System | Contains (primary) | Exact match | Token F1 | CRAG score |
-|---|---|---|---|---|
-| A | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| B | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| F | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| F-tuned | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| System | Contains (primary) | Exact match | Token F1 |
+|---|---|---|---|
+| A | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| B | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| F | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| F-seq | `[INSERT]` | `[INSERT]` | `[INSERT]` |
 
-**Figure 4.2** — metric-agreement heatmap (N4 `agree_mat`): pairwise agreement over
-contains / exact / tokenF1≥0.5 / CRAG-good.
+**Figure 4.3** — metric-agreement heatmap (N4): pairwise agreement over contains / exact / tokenF1≥0.5.
 
-**Analysis template (~350 words).** This is the **metric-divergence audit (A4)** — the only aim with
-zero implementation at audit time, so flag it as a contribution.
-- "The four correctness metrics agreed on `[INSERT %]` of runs; the largest divergence was between
-  `[INSERT pair]` at `[INSERT %]`." Interpret: where containment and exact-match diverge, answers are
-  *correct but verbose*; where containment and Token F1 diverge, partial lexical overlap; where the
-  CRAG judge diverges from all deterministic metrics, semantic-but-not-lexical correctness (or judge
-  noise).
-- Use this to **defend the choice of containment as primary** (§3.7): it is stricter than the
-  official MultiHop-RAG scorer, so reported accuracy is conservative.
-- Note any system whose ranking *changes* under different metrics — that instability is itself a
-  finding about metric choice in RAG evaluation.
+**Analysis template (~300 words).** This is the metric-divergence audit (A4): report agreement %,
+the largest divergent pair, and interpret (contains vs exact = correct-but-verbose; contains vs Token
+F1 = partial lexical overlap). Use it to **defend containment as primary** — it is stricter than the
+official MultiHop-RAG word-intersection scorer (`RELATED_WORK.md §5`), so reported accuracy is
+conservative. Flag any system whose ranking changes under a different metric.
 
 ---
 
-## 4.4 Cost and latency — RQ2
+## 4.5 Cost and latency — RQ2
 
-*Evidence: N2 `variance_tbl` (cost mean/std/total/per-correct, latency p50/p95/mean/std);
-N5 `fig_pareto`.*
+*Evidence: N2 `variance_tbl`; N5 `fig_pareto`. Costs are billed Bedrock figures
+(`response_cost`); local embedder/reranker/HHEM are free CPU, so `cost_usd` is the full variable cost.*
 
-**Table 4.4 — Cost.**
+**Table 4.5 — Cost, per system × model (both datasets pooled or split).**
 
-| System × Model | Total cost (USD) | Cost/query | **Cost per correct** | Tokens in/out | Avg steps |
-|---|---|---|---|---|---|
-| `[INSERT rows: 12 configs]` | | | | | |
+| System × Model | Total cost (USD) | Cost/query | **Cost per correct** | Avg steps |
+|---|---|---|---|---|
+| `[INSERT rows]` | | | | |
 
-**Figure 4.3** — Pareto frontier (N5): accuracy (x) vs cost-per-correct (y), non-dominated points
-marked. **The headline cost figure of the dissertation.**
+> **Pilot — measured cost/query, DeepSeek-V3 (the cost basis for the matrix):**
+> A $0.0017 · A-minus $0.0017 · F $0.0026 · F-seq $0.0038 · B $0.0068 · B-minus $0.0065.
+> B is ~4× A (it issues ~4 retrieval+route calls); decomposition (F/F-seq) sits between. Haiku ≈ 7–8×
+> these figures; Nova ≈ 1/14.
 
-**Table 4.5 — Latency** (p50 / p95 / mean), per system:
-
-| System × Model | p50 (ms) | p95 (ms) | mean (ms) |
-|---|---|---|---|
-| `[INSERT]` | | | |
+**Figure 4.4** — Pareto frontier (N5): accuracy (x) vs cost-per-correct (y), non-dominated points
+marked. **The headline cost figure.**
 
 **Analysis template (~400 words).**
 - *Cost-per-correct (the contribution):* "A answered each correct question for `[INSERT $]`; B for
-  `[INSERT $]` (`[INSERT ×]` more); F for `[INSERT $]`." Connect to Gap 2 — no surveyed paper reports
-  cost-per-correct (`RELATED_WORK.md §6`). The HippoRAG $0.10-vs-IRCoT-$1–3 precedent is the only
-  comparable dollar figure; cite it as context, not a competitor.
-- *Pareto frontier:* name which configurations are non-dominated. Typical expectation: A is on the
-  frontier (cheap, decent); F-tuned may be on it (accurate, costly); B is at risk of being *dominated*
-  (extra LLM calls per step without proportional accuracy) — if so, that is a clean RQ2 result.
-- *Does iteration/decomposition pay for itself?* The core RQ2 sentence: per extra accuracy point,
-  `[INSERT $]` for B vs `[INSERT $]` for F.
-- *Latency:* report p50/p95. **Scope the cross-provider claim (W9):** the three models run on
-  different serving infrastructure and the systems ran sequentially, so cross-*model* latency carries
-  a confound; cross-*system* latency within one model is the cleaner comparison.
+  `[INSERT $]` (`[INSERT ×]` more); F-seq for `[INSERT $]`." Connect to Gap 2 — no surveyed paper
+  reports cost-per-correct (`RELATED_WORK.md §6`); HippoRAG's $0.10-vs-IRCoT-$1–3 is the only dollar
+  precedent, cited as context.
+- *Pareto frontier:* name the non-dominated configs. Likely: A/A-minus cheap-and-decent; B accurate
+  but dominated where its extra calls don't pay; F-seq the multi-hop value pick if it lands on the
+  frontier. **On MuSiQue specifically, B-minus may dominate** (best accuracy *and* no rerank cost).
+- *Does orchestration pay for itself?* dollars per extra accuracy point, B vs F-seq.
+- *Latency (W9 scope):* report p50/p95 per system; cross-*model* latency carries a serving-infra
+  confound (sequential runs), so the clean comparison is cross-*system within one model*.
 
 ---
 
-## 4.5 Retrieval ceiling and failure attribution — A4 / O6
+## 4.6 Cross-model rank stability and orchestration robustness — RQ3 / RQ4
 
-*Evidence: N3 `ceiling` + stacked-bar. Null-type queries excluded (no gold).*
+*Evidence: N1 `kendall_tau_b`; N2 bootstrap CIs.*
 
-```mermaid
-flowchart TB
-    R(["Run · non-Null query"]):::data --> Q1{"≥ 1 gold article<br/>in answer context?"}:::dec
-    Q1 -->|no| FR["Retrieval failure<br/>(err_retrieval)"]:::bad
-    Q1 -->|yes| Q2{"Answer correct?"}:::dec
-    Q2 -->|yes| OK["Correct"]:::good
-    Q2 -->|no| FG["Generation failure<br/>(err_generation)"]:::bad
-    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
-    classDef dec fill:#fff3e0,stroke:#e65100,color:#bf360c
-    classDef bad fill:#ffebee,stroke:#c62828,color:#b71c1c
-    classDef good fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
-```
-*Figure 4.4a — Failure-attribution logic (N3). Every non-Null run lands in exactly one leaf, so `err_retrieval + err_generation = 1 − accuracy` — partitioning each system's errors into "couldn't find the evidence" vs "had it, still wrong".*
+**Table 4.6 — System ranking per model + stability.**
 
-**Figure 4.4** — per system: coverage (fraction with ≥1 gold article in the answering context = the
-ceiling) and, for each error, the split `err_retrieval` (no evidence retrieved) vs `err_generation`
-(evidence present, still wrong). By construction `err_retrieval + err_generation = 1 − accuracy`.
-
-**Table 4.6 — Failure attribution.**
-
-| System | Coverage (ceiling) | Accuracy | Retrieval failures | Generation failures |
-|---|---|---|---|---|
-| A | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| B | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| F | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| F-tuned | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-
-**Analysis template (~350 words).**
-- "The retrieval ceiling for A was `[INSERT %]`; orchestration lifted coverage to `[INSERT %]` (B) and
-  `[INSERT %]` (F), confirming that the extra retrievals surface gold evidence the single pass missed
-  — *or* did not, if coverage is flat." This directly tests *why* B/F help (or don't): more evidence
-  retrieved, vs better use of the same evidence.
-- Decompose each system's error budget: a system can be limited by **retrieval** (can't find
-  evidence) or **generation** (has evidence, answers wrong). State which bound dominates each system —
-  this is the failure-attribution contribution (O6).
-- Anchor to the benchmark ceiling: Tang & Yang report GPT-4 at 0.56 accuracy with retrieved chunks
-  vs 0.89 with gold evidence ⚠ (re-check Table 6 before printing) — the macro analogue of this
-  per-system ceiling.
-- Caveat to disclose: coverage uses each run's persisted answering context, whose size differs by
-  system; for System B this is "evidence in the answering context", not "ever seen" (the latter would
-  use `all_retrieved_chunk_ids`).
-
----
-
-## 4.6 Cross-model rank stability — RQ3 / RQ4
-
-*Evidence: N1 `kendall_tau_b` (rank stability across models); N2 bootstrap CIs.*
-
-**Table 4.7 — System ranking per model + stability.**
-
-| Rank | Haiku 4.5 | Nova Lite | Qwen3 |
+| Rank | DeepSeek-V3 | Qwen3-32B | Nova Lite |
 |---|---|---|---|
 | 1 | `[INSERT]` | `[INSERT]` | `[INSERT]` |
 | 2 | `[INSERT]` | `[INSERT]` | `[INSERT]` |
 | 3 | `[INSERT]` | `[INSERT]` | `[INSERT]` |
 | 4 | `[INSERT]` | `[INSERT]` | `[INSERT]` |
 
-Kendall τ-b (pairwise across models): `[INSERT]`. Bootstrap 95% CIs on per-system accuracy:
-`[INSERT]`.
+Kendall τ-b across models: `[INSERT]`. Bootstrap 95% CIs on per-system accuracy: `[INSERT]`.
 
-**Analysis template (~250 words).**
-- *Predictability (RQ4):* "The system ranking was `[stable / unstable]` across the three models
-  (Kendall τ-b = `[INSERT]`)." If stable, the orchestration ranking generalises across budget models —
-  a useful, deployable conclusion. If unstable, orchestration choice is model-dependent — equally
-  interesting, and a caution against single-model RAG benchmarking.
-- *Overlap of CIs:* where bootstrap CIs overlap, differences are not statistically separable — say so;
-  this exceeds the field norm, which spot-checks show is single-run with no CIs (`RELATED_WORK.md §5`).
-- Hold the **W6 scope**: heterogeneous *budget-class* models, not a capability axis.
+**Analysis template (~300 words).**
+- *Predictability (RQ4):* "The ranking was `[stable/unstable]` across models (τ-b = `[INSERT]`)."
+  Stable → the orchestration ranking generalises across cost-efficient models (deployable). Unstable →
+  orchestration choice is model-dependent (a caution against single-model RAG benchmarking).
+- *Orchestration robustness (a distinct RQ4 result):* **Nova Lite could not execute F/F-seq** —
+  structured-output parse-failure degraded them to naive retrieval (avg 1.1 vs 3.5–3.7 retrievals on
+  DeepSeek/Qwen). State the deployable lesson: *decomposition orchestration presupposes reliable
+  structured-output generation; iterative free-text reformulation (B) is the more model-robust
+  multi-hop strategy.* This connects to the System B routing redesign (§3.3) that fixed the same
+  fragility for B.
+- *CIs:* where bootstrap CIs overlap, differences are not statistically separable — say so (exceeds
+  the field's single-run norm, `RELATED_WORK.md §5`). With *n*≈150 the small-sample noise of the
+  pilots (2–5 query swings) is materially reduced — state the *n* explicitly.
+- *Scope (W6):* heterogeneous *cost-efficient* models with a capability gradient, not a frontier axis.
 
 ---
 
 ## 4.7 Summary of findings
 
 One line per research question (fill after the sections above):
-- **RQ1 (accuracy by orchestration + type):** `[INSERT one-sentence answer]`
-- **RQ2 (cost per correct + latency):** `[INSERT]`
-- **RQ3 (ranking across models):** `[INSERT]`
-- **RQ4 (predictability / rank stability):** `[INSERT]`
+- **RQ1 (accuracy by orchestration + type/hop):** `[INSERT]` — e.g. sequential decomposition (F-seq)
+  and iteration (B) lead on deep multi-hop; parallel decomposition (F) ≈ naive.
+- **RQ2 (cost per correct + latency):** `[INSERT]` — the Pareto-frontier configs.
+- **RQ3 (ranking across models):** `[INSERT]` — rank (in)stability across the capability gradient.
+- **RQ4 (predictability / robustness):** `[INSERT]` — rank stability + the Nova decomposition-failure
+  robustness result.
+- **Novel — retriever × orchestration:** `[INSERT]` — pipeline value is dataset-dependent (hybrid wins
+  on news; dense+iteration wins on MuSiQue).
 
-> These feed directly into Chapter 5's per-RQ conclusions (marking: Conclusions /20 — link back to
-> *every* RQ).
+> These feed Chapter 5's per-RQ conclusions (Conclusions /20 — link back to *every* RQ, including the
+> retriever finding).
 
 ---
 
@@ -254,9 +311,9 @@ One line per research question (fill after the sections above):
 
 | Artefact | Source |
 |---|---|
-| T4.1, T4.2 accuracy | `compute-metrics`, `metrics-by-type` |
-| F4.1 accuracy bars | N2 / by-type |
-| T4.3 quality, F4.2 agreement | `compute-metrics`, N4 `agree_mat` |
-| T4.4/T4.5 cost+latency, F4.3 Pareto | N2 `variance_tbl`, N5 `fig_pareto` |
-| F4.4 / T4.6 ceiling | N3 `ceiling` |
-| T4.7 rank stability | N1 `kendall_tau_b`, N2 CIs |
+| T4.1/T4.2 accuracy, F4.1 bars | `compute-metrics`, `metrics-by-type`, N2 |
+| T4.3 / F4.5 retriever×orchestration 2×2 | `compute-metrics` (A/A-minus/B/B-minus cells) |
+| T4.4 quality, F4.3 agreement | `compute-metrics`, N4 `agree_mat` |
+| T4.5 cost, F4.4 Pareto | N2 `variance_tbl`, N5 `fig_pareto` |
+| T4.6 rank stability | N1 `kendall_tau_b`, N2 CIs |
+| Retrieval ceiling (optional §4.3 sub) | N3 `ceiling` (uses `all_retrieved_chunk_ids`) |

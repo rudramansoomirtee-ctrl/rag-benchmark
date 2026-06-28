@@ -76,6 +76,7 @@ class AgentState(TypedDict):
     answer_chunks: list[dict]
     n_steps: int
     max_agent_steps: int
+    semantic_only: bool
     final_answer: str | None
     tokens_in: int
     tokens_out: int
@@ -83,7 +84,7 @@ class AgentState(TypedDict):
 
 
 def _retrieve_node(state: AgentState) -> AgentState:
-    hits = retrieve(state["current_query"], top_k=settings.top_k)
+    hits = retrieve(state["current_query"], top_k=settings.top_k, semantic_only=state["semantic_only"])
     state["iteration_hits"].append(hits)
     state["n_steps"] += 1
     return state
@@ -174,10 +175,11 @@ def _build_graph():
 class SystemB:
     name = "B"
 
-    def __init__(self, max_agent_steps: int | None = None):
+    def __init__(self, max_agent_steps: int | None = None, semantic_only: bool = False):
         self.max_agent_steps = (
             max_agent_steps if max_agent_steps is not None else settings.max_agent_steps
         )
+        self.semantic_only = semantic_only
         self._graph = _build_graph()
 
     def answer(self, query: str) -> RunResult:
@@ -189,6 +191,7 @@ class SystemB:
             "answer_chunks": [],
             "n_steps": 0,
             "max_agent_steps": self.max_agent_steps,
+            "semantic_only": self.semantic_only,
             "final_answer": None,
             "tokens_in": 0,
             "tokens_out": 0,

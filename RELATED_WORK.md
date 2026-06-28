@@ -157,3 +157,49 @@ pattern as ours), InstructRAG (ICLR'25), RankRAG (NeurIPS'24).
 - **Two-independent-agent convergence:** Ammann headline numbers; HippoRAG cost claim; dollar-cost absence across families.
 - **Single-source / flagged ⚠:** GPT-4 0.56/0.89 split; Multi-Meta-RAG absolutes; Ammann stack details; RAG-vs-GraphRAG cell values; SPA 2026 numbers.
 - **Environment caveat:** arXiv/ACL PDFs were bot-blocked during the search; verification ran through official GitHub repos, anthology landing pages, and search-indexed paper text.
+- **Primary-verified 2026-06-28 (retriever ablation, §8):** BEIR abstract (arXiv:2104.08663) and MuSiQue distractor construction (ar5iv.org/abs/2108.00573) — quotes confirmed from the papers, not secondary pages.
+
+## 8. Retriever ablation — verified evidence base (2026-06-28)
+
+Added for the **A-minus / B-minus** retrieval-pipeline axis (dense-kNN-only vs hybrid
+BM25+dense+RRF+rerank) and the **dataset-dependent retriever** finding
+(DISSERTATION_AUDIT §5c). Two anchor papers were re-verified against PRIMARY sources
+this session; the iteration-error claim is flagged ⚠ (phenomenon known, no quote pulled).
+
+**Claim — "no universal best retriever; BM25 is a robust baseline that dense/sparse
+models often fail to beat zero-shot."**
+→ **Thakur, Reimers, Rücklé, Srivastava, Gurevych 2021, "BEIR: A Heterogeneous Benchmark
+for Zero-shot Evaluation of IR Models," NeurIPS 2021 Datasets & Benchmarks**
+(arXiv:2104.08663). **Primary-verified (abstract, this session):** *"BM25 is a robust
+baseline … dense and sparse-retrieval models are computationally more efficient but
+often underperform other approaches."* Grounds the MultiHop (hybrid wins +0.20) vs
+MuSiQue (semantic wins) split as expected domain-dependence, not an anomaly.
+
+**Claim — "MuSiQue's hard distractors are BM25-mined with intermediate answers masked,
+and are empirically the hard part → lexical retrieval is adversarially targeted by
+construction."**
+→ **Trivedi, Balasubramanian, Khot, Sabharwal 2022, "MuSiQue: Multihop Questions via
+Single-hop Question Composition," TACL 2022** (arXiv:2108.00573). **Primary-verified
+(ar5iv, this session):** distractors *"retrieved using a query that is a concatenation
+of single-hop questions from which all intermediate answer mentions are removed"* via
+*"the BM25 algorithm via Elasticsearch"*; *"MuSiQue-Ans is more difficult overall (3×
+increase in human-machine gap)"*; *"all models find PD [positive distractors]
+significantly harder than FW [Full Wikipedia]."* This is the **mechanism** for the
+MuSiQue result. NB: the paper supports the *premise* (BM25-adversarial distractors); the
+*conclusion* (dense+iteration > hybrid on answering) is THIS study's contribution.
+
+**Claim — "iterative multi-hop retrieval propagates/compounds errors (semantic drift);
+lexical-distractor noise compounds across hops."**
+→ Canonical primaries: **IRCoT** (Trivedi+ 2023, arXiv:2212.10509), **Self-Ask**
+(Press+ 2023, arXiv:2210.03350), **Multi-hop Dense Retrieval** (Xiong+ 2021,
+arXiv:2009.12756). ⚠ **Phenomenon is well-established but NOT quote-verified this
+session** — read the PDF before citing a specific sentence. The "~2.8% dense>sparse in
+iterative multi-hop" figure seen during search was **unattributable → do not cite.**
+
+**Not citable** (search/discovery aids only, not primary): TianPan blog, ML Journey,
+EmergentMind topic pages. Use the BEIR + MuSiQue primaries above.
+
+**Our contribution (no prior found):** the controlled **retriever × orchestration 2×2**
+showing the optimal retriever flips by dataset and interacts with orchestration (hybrid
+wins on news; dense+iteration wins on MuSiQue). BEIR supplies domain-dependence; MuSiQue
+supplies the BM25-distractor mechanism; the **interaction** is ours.
