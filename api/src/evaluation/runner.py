@@ -93,13 +93,16 @@ def _corpus_fingerprint(session, datasets: list[str]) -> dict:
 
 
 # Final lineup: A (naive), A-minus (naive over a semantic-kNN-only retriever),
-# B (iterative agent, default 5-step budget), F (PARALLEL decomposition + RRF),
-# F-seq (SEQUENTIAL self-ask decomposition — resolves each hop and carries the
-# bridge answer forward). A-minus-vs-A isolates the retrieval-pipeline effect
-# (semantic-only vs hybrid+rerank, orchestration fixed); A-vs-B/F/F-seq isolate
-# orchestration (retriever fixed). F-vs-F-seq isolates parallel-vs-sequential
-# decomposition; F-seq-vs-B isolates pre-decomposed self-ask vs free-form
-# iteration. System G (multi-tool agentic), the B1/B3/B5 iteration sweep, and
+# B (iterative agent, default 5-step budget), B-minus (B over the semantic-only
+# retriever), F (PARALLEL decomposition + RRF), F-seq (SEQUENTIAL self-ask
+# decomposition — resolves each hop and carries the bridge answer forward).
+# A-minus-vs-A isolates the retrieval-pipeline effect (semantic-only vs
+# hybrid+rerank, orchestration fixed); A-vs-B/F/F-seq isolate orchestration
+# (retriever fixed). B-minus-vs-B vs A-minus-vs-A tests whether iterative
+# orchestration COMPENSATES for a weak retriever (a smaller B drop = compensation).
+# F-vs-F-seq isolates parallel-vs-sequential decomposition; F-seq-vs-B isolates
+# pre-decomposed self-ask vs free-form iteration. System G (multi-tool agentic),
+# the B1/B3/B5 iteration sweep, and
 # F-tuned (decomposition + CoT + source-aware retrieval) were all removed after
 # their runs showed no value over the baselines; historical runs (incl. F-tuned
 # exp18-26) remain in the DB.
@@ -107,6 +110,7 @@ SYSTEM_REGISTRY: dict[str, Callable[[], System]] = {
     "A": SystemA,
     "A-minus": SystemAMinus,
     "B": SystemB,
+    "B-minus": lambda: SystemB(semantic_only=True),
     "F": SystemF,
     "F-seq": SystemFSeq,
 }
