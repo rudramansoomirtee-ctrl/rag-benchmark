@@ -18,7 +18,26 @@ def __():
     from sqlalchemy import create_engine
 
     engine = create_engine("postgresql+psycopg://rag:ragbench@localhost:5432/ragbench")
-    return engine, pd, plt
+
+    # Presentation labels for figures/tables. Internal codes (runs.system) are kept
+    # stable for DB + historical comparability; these map code -> descriptive name
+    # (with the code retained in parentheses). Two axes: orchestration strategy, and
+    # the dense-only retriever ablation (the "-minus" variants).
+    SYSTEM_DISPLAY_NAMES = {
+        "A": "Single-pass RAG (A)",
+        "A-minus": "Single-pass RAG · dense-only (A-minus)",
+        "B": "Iterative RAG (B)",
+        "B-minus": "Iterative RAG · dense-only (B-minus)",
+        "F": "Parallel decomposition (F)",
+        "F-seq": "Sequential decomposition / Self-Ask (F-seq)",
+        "F-tuned": "F-tuned · stacked, retired (F-tuned)",
+        "G": "Multi-tool agentic · retired (G)",
+    }
+
+    def disp(code):
+        return SYSTEM_DISPLAY_NAMES.get(code, code)
+
+    return SYSTEM_DISPLAY_NAMES, disp, engine, pd, plt
 
 
 @app.cell
@@ -29,12 +48,12 @@ def __(engine, pd):
 
 
 @app.cell
-def __(metrics, plt):
+def __(disp, metrics, plt):
     # Pareto: cost_per_correct vs accuracy
     fig, ax = plt.subplots(figsize=(7, 5))
     for _, row in metrics.iterrows():
         ax.scatter(row["accuracy"], float(row["cost_per_correct"] or 0), s=80)
-        ax.annotate(f"{row['system']} ({row['dataset']})",
+        ax.annotate(f"{disp(row['system'])} · {row['dataset']}",
                     (row["accuracy"], float(row["cost_per_correct"] or 0)),
                     xytext=(5, 5), textcoords="offset points")
     ax.set_xlabel("Accuracy")
@@ -66,9 +85,10 @@ def __(engine, pd):
 
 
 @app.cell
-def __(by_type):
+def __(SYSTEM_DISPLAY_NAMES, by_type):
     # Grouped bars: accuracy per question type, one cluster per system.
     pivot = by_type.pivot(index="question_type", columns="system", values="accuracy")
+    pivot = pivot.rename(columns=SYSTEM_DISPLAY_NAMES)
     ax2 = pivot.plot(kind="bar", figsize=(8, 5), ylim=(0, 1))
     ax2.set_ylabel("Accuracy (containment)")
     ax2.set_xlabel("MultiHop question type")
@@ -171,7 +191,7 @@ def __(contains_match, covered, exact_match, runs_raw, token_f1):
 
 # ---- N3: retrieval ceiling + failure attribution (A4/O6) ----
 @app.cell
-def __(pd, plt, runs_m):
+def __(disp, pd, plt, runs_m):
     # Every wrong answer is either a RETRIEVAL failure (gold never retrieved) or a
     # GENERATION failure (gold was present, model still wrong). Coverage is the
     # retrieval ceiling: accuracy cannot meaningfully exceed it. Null-type queries
@@ -192,7 +212,7 @@ def __(pd, plt, runs_m):
     ceiling = pd.DataFrame(_recs).sort_values("system").reset_index(drop=True)
 
     _fig, _ax = plt.subplots(figsize=(8, 4.5))
-    _sys = ceiling["system"]
+    _sys = ceiling["system"].map(disp)
     _ax.barh(_sys, ceiling["accuracy"], color="#2a9d8f", label="correct")
     _ax.barh(_sys, ceiling["err_generation"], left=ceiling["accuracy"], color="#e9c46a", label="generation failure (had evidence)")
     _ax.barh(_sys, ceiling["err_retrieval"], left=ceiling["accuracy"] + ceiling["err_generation"], color="#e76f51", label="retrieval failure (no evidence)")
@@ -343,7 +363,7 @@ def __(engine, kendall_tau_b, pd):
 
 # ---- N5: cost-accuracy Pareto frontier (A3/O5) ----
 @app.cell
-def __(metrics, pareto_frontier, plt):
+def __(disp, metrics, pareto_frontier, plt):
     _pts = [
         (str(r["system"]), float(r["accuracy"] or 0), float(r["cost_per_correct"] or 0))
         for _, r in metrics.iterrows()
@@ -353,7 +373,7 @@ def __(metrics, pareto_frontier, plt):
     _fig, _ax = plt.subplots(figsize=(7, 5))
     for _lbl, _a, _c in _pts:
         _ax.scatter(_a, _c, s=80, color="#bbbbbb", zorder=2)
-        _ax.annotate(_lbl, (_a, _c), xytext=(5, 5), textcoords="offset points", fontsize=8)
+        _ax.annotate(disp(_lbl), (_a, _c), xytext=(5, 5), textcoords="offset points", fontsize=8)
     if _front:
         _fx = [a for _, a, _c in _front]
         _fy = [c for _, _a, c in _front]

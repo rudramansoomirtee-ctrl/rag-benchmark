@@ -140,6 +140,24 @@ retriever is now a clean, separately-manipulated factor.
 
 ## 3.3 The orchestration strategies and their retrieval-ablated twins
 
+**Nomenclature.** Systems are referred to by their short code in tables and figures and by their
+descriptive name in prose; the two are used interchangeably and the code is retained in parentheses
+after each name. The codes are also the internal identifiers stored in the database (`runs.system`),
+kept stable for comparability with historical runs.
+
+| Code | Name | Orchestration | Retriever |
+|---|---|---|---|
+| **A** | Single-pass RAG | naive — one retrieval, one answer | hybrid (BM25+dense+rerank) |
+| **A-minus** | Single-pass RAG (dense-only) | naive | dense-kNN only |
+| **B** | Iterative RAG | iterative reformulation loop (≤5) | hybrid |
+| **B-minus** | Iterative RAG (dense-only) | iterative | dense-kNN only |
+| **F** | Parallel decomposition | decompose → retrieve sub-questions in parallel | hybrid |
+| **F-seq** | Sequential decomposition (Self-Ask) | decompose → resolve hops one at a time | hybrid |
+
+*Table 3.1 — System nomenclature. The orchestration axis (A/B/F/F-seq) is Study 1; the dense-only
+"-minus" variants are the retriever ablation of Study 2. "Hybrid" is the default and is left implicit
+in most tables; only the dense-only rows are tagged.*
+
 All systems implement a single `answer(query) -> RunResult` protocol (`systems/base.py`), so the
 runner treats them interchangeably and only the control logic varies.
 

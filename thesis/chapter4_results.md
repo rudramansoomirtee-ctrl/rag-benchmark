@@ -33,6 +33,11 @@ manipulate different variables:
   The **A / A-minus / B / B-minus** 2×2, run on both datasets, isolates the value of the retrieval
   pipeline and its interaction with orchestration.
 
+**System nomenclature (codes in tables; full names in prose — see Table 3.1):**
+**A** = Single-pass RAG · **B** = Iterative RAG · **F** = Parallel decomposition · **F-seq** =
+Sequential decomposition (Self-Ask) · **A-minus / B-minus** = the dense-only (semantic-kNN) retriever
+ablations of A and B. The hybrid retriever is the default; only dense-only rows are tagged.
+
 ```mermaid
 flowchart TB
     SUB["Frozen substrate · one seeded sample / dataset · local bge reranker · temp 0"]:::fixed
