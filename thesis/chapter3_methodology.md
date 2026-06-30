@@ -75,12 +75,12 @@ build reproduces the same answers.
 
 **Study 1 — the orchestration arm.** The independent variable is *orchestration*, and the framework
 is designed so the four systems vary only in it. Systems A, B, F and F-seq share the same retriever
-(§3.4), the same generator and answer prompt, and the same evidence-fusion mechanism. The three
-*multi-query* strategies — B, F, F-seq — additionally share an identical **answer-context budget of
-twenty fused chunks** (`fused_answer_top_k = 20`), so they differ in exactly one respect: *how the
-queries that fill that budget are produced*.
+(§3.4), the same generator and answer prompt, and an identical **answer-context budget of twenty
+chunks** — A answers over its single-pass top-20 (`top_k = 20`), while B, F and F-seq answer over their
+fused top-20 (`fused_answer_top_k = 20`). With the budget uniform across all four, they differ in
+exactly one respect: *how the queries that fill those twenty slots are produced*.
 
-- **A** answers over a single retrieval pass (its top-10) — the standard-RAG baseline and the
+- **A** answers over a single retrieval pass (its top-20) — the standard-RAG baseline and the
   degenerate case the others reduce to when no extra queries are warranted.
 - **B** fuses the results of several *sequential* retrievals, each query conditioned on evidence
   already gathered.
@@ -93,7 +93,7 @@ queries that fill that budget are produced*.
 flowchart LR
     Q(["Question"]):::data
     Q --> A0 & B0 & F0 & FS0
-    A0["<b>A</b> · one retrieval pass · top-10"]:::sys
+    A0["<b>A</b> · one retrieval pass · top-20"]:::sys
     B0["<b>B</b> · retrieve→reformulate loop<br/>≤5 steps · evidence accumulates"]:::sys
     F0["<b>F</b> · decompose → parallel retrievals"]:::sys
     FS0["<b>F-seq</b> · decompose → sequential,<br/>bridge-resolved retrievals"]:::sys
@@ -121,12 +121,12 @@ moves one lever at a time.
 Two single-variable contrasts carry the orchestration findings: **F vs F-seq** isolates *parallel
 versus sequential* decomposition (self-ask / least-to-most lineage — Press et al. 2023; Zhou et al.
 2023), and **F-seq vs B** isolates *pre-decomposed self-ask versus free-form iterative reformulation*.
-A note on scope: System A answers over its single-pass top-10 rather than a padded 20, so A↔(B/F/F-seq)
-comparisons combine the orchestration change with a 10→20 budget change; the clean
-budget-held-constant comparison is *among* the multi-query systems and within each Study-2 pair (below).
-The 20-chunk budget itself was fixed after a budget-sensitivity ablation showed the optimum is
-per-strategy (iterative accumulation prefers a narrower budget, fan-out a wider one); a single constant
-was adopted for comparability (`DISSERTATION_AUDIT.md §5c`).
+Because the answer-context budget is **uniform at twenty across all four systems** (`top_k = 20` for A,
+`fused_answer_top_k = 20` for the rest), the A↔B/F/F-seq contrasts are clean single-variable
+comparisons in orchestration, with no confounding budget difference. The 20-chunk budget was fixed
+after a budget-sensitivity ablation showed the optimum is per-strategy (iterative accumulation prefers
+a narrower budget, fan-out a wider one); a single constant was adopted for comparability
+(`DISSERTATION_AUDIT.md §5c`).
 
 **Study 2 — the retrieval arm.** The second arm holds orchestration constant and varies the retriever.
 Every system has a dense-kNN-only twin — A-minus, B-minus, F-minus, F-seq-minus — byte-for-byte
@@ -263,8 +263,9 @@ licenses attributing differences to orchestration. Every system calls one entry 
 `retrieval/retrieve.py:retrieve`, which performs **hybrid retrieval** — lexical BM25 and dense
 k-nearest-neighbour search run in parallel, fused by reciprocal-rank fusion to a first-stage pool, then
 re-ranked by a cross-encoder to the final top-*k*. Queries are embedded with `BAAI/llm-embedder` (768
-dimensions); the corpus is indexed in OpenSearch (HNSW, Lucene, cosine); the first-stage pool is twenty
-(`retrieval_pool`); and the cross-encoder is the local `BAAI/bge-reranker-v2-m3` (chosen over a hosted
+dimensions); the corpus is indexed in OpenSearch (HNSW, Lucene, cosine); the first-stage pool is forty
+(`retrieval_pool`, ≈2× the `top_k = 20` answer budget so the reranker selects rather than merely
+reorders); and the cross-encoder is the local `BAAI/bge-reranker-v2-m3` (chosen over a hosted
 reranker for the final matrix: it is free, reproducible, and removes an external dependency). Multi-list
 fusion for B, F and F-seq uses a client-side reciprocal-rank fusion (`rrf_fuse`) independent of
 OpenSearch's absolute score scale.
@@ -429,7 +430,6 @@ Ethically the study is low-risk: it uses public research datasets, contains no p
 data, and makes only metered, authorised commercial-API calls. The principal threats to validity are
 stated plainly: the cost-efficient model panel bounds the generality of cross-model claims (§3.5);
 cross-provider latency carries a serving-infrastructure confound and is scoped to within-model
-comparisons (§3.7); the A↔(B/F/F-seq) budget asymmetry means the clean budget-constant comparisons are
-*among* the multi-query systems and within each Study-2 pair (§3.2); and the MuSiQue retriever finding
+comparisons (§3.7); and the MuSiQue retriever finding
 is, in part, a consequence of that benchmark's BM25-mined distractor construction — stated as such
 rather than over-generalised (§4.3).

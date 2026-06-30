@@ -73,7 +73,7 @@ flowchart TB
 | Models | Qwen3-32B · DeepSeek-V3 · Nova Lite (all AWS Bedrock, LiteLLM SDK, temp 0) |
 | Datasets / *N* / seed | MuSiQue `[INSERT N]` · MultiHop-RAG `[INSERT N]` / `[INSERT seed]` |
 | Reranker | `BAAI/bge-reranker-v2-m3` (local) |
-| Answer-context budget | `fused_answer_top_k = 20`, constant across B/F/F-seq |
+| Answer-context budget | 20 chunks, **uniform across all systems** (`top_k = 20` for A/A-minus; `fused_answer_top_k = 20` for B/F/F-seq) |
 | Identical `query_ids` per dataset across all cells | `[INSERT: confirmed yes/no]` |
 | Hardware (CPU/RAM) | `[INSERT — P3]` |
 

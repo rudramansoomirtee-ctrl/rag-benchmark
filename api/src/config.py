@@ -29,20 +29,24 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/llm-embedder"
     embedding_dim: int = 768
     opensearch_index: str = "rag-chunks"
-    top_k: int = 10
+    # Answer-context budget = 20 for EVERY system: A/A-minus answer over their
+    # single-pass top-20, B/F/F-seq over their fused top-20 (= fused_answer_top_k).
+    # Raised 10→20 so the budget is UNIFORM across the whole factorial (removes the
+    # earlier A=10 vs fusing=20 asymmetry), and because chunk-level analysis of
+    # exp36/37 showed gold being evicted from a 10-slot fused context (the dominant
+    # 4-hop failure). Env: TOP_K.
+    top_k: int = 20
     # Answer-context budget for systems fusing multiple ranked lists (B, F, F-seq):
-    # they answer over the fused top-N. Raised 10→20 after chunk-level analysis of
-    # exp36/37 showed gold chunks that WERE retrieved getting evicted from a 10-slot
-    # fused context as iterations/sub-questions piled up — the dominant 4-hop failure
-    # mode ("retrieved but not in answer context"). A single-list (A) run answers
-    # over top_k directly and is unaffected. Env: FUSED_ANSWER_TOP_K.
-    # Held CONSTANT across all fusing systems (B, F, F-seq) so the comparison
-    # isolates orchestration strategy, not the budget knob. NB the ablation
-    # (exp38/39/40) showed the optimum is per-strategy — B@10=0.600 > B@20=0.540,
-    # but F-seq@20=0.540 >> F-seq@10=0.380 — so a single fixed budget trades ~0.06
-    # of B's accuracy for a clean, budget-controlled comparison.
+    # they answer over the fused top-N, held CONSTANT at 20 so the comparison isolates
+    # orchestration strategy, not the budget knob — and now equal to A's top_k=20, so
+    # the budget is uniform across all eight systems. NB the budget ablation
+    # (exp38/39/40) found the optimum is per-strategy (B best @10, F-seq @20); a single
+    # fixed value is adopted for a controlled comparison. Env: FUSED_ANSWER_TOP_K.
     fused_answer_top_k: int = 20
-    retrieval_pool: int = 20
+    # First-stage hybrid pool handed to the cross-encoder reranker. Kept at ~2× top_k
+    # (40 for top_k=20) so the reranker actually SELECTS the answer context from a
+    # larger candidate set rather than just reordering exactly what it was given.
+    retrieval_pool: int = 40
     # BGE-reranker-v2-m3 (568M params) — top of MTEB rerank as of 2024, free,
     # CPU-tolerable (~50-100ms per pair). Strong open-weight replacement for
     # Cohere Rerank 3.5 which is not available in eu-west-2. The smaller

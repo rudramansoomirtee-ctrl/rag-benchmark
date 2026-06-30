@@ -96,9 +96,9 @@ all_retrieved_chunk_ids`. `retrieved_chunk_ids` is the final answering context;
 |------------------|--------------------------------------------------------------|
 | Query embedding  | `retrieval/embeddings.py:embed_one` — `BAAI/llm-embedder`, 768-dim (the *model* is lru_cached via `get_model()`; per-query embeds are not) |
 | Retrieval        | `retrieval/retrieve.py:retrieve` — hybrid BM25 + dense kNN, RRF-fused (`opensearch_client.py:hybrid_search`), then cross-encoder rerank to `top_k`. A/B/F/F-seq all share this; `knn_search`/`bm25_search` are its building blocks |
-| Multi-list fusion | `retrieval/retrieve.py:rrf_fuse` — client-side RRF over per-query ranked lists; B fuses its iteration lists, F its sub-question lists. Answer context = fused top `FUSED_ANSWER_TOP_K = 20`, held **constant** across all fusing systems (B/F/F-seq) so the comparison isolates orchestration strategy, not the budget knob (raised 10→20 after exp36/37 showed retrieved gold evicted from a 10-slot context). The budget ablation (exp38/39/40) found the optimum is per-strategy — B@10=0.600 > B@20=0.540, but F-seq@20=0.540 ≫ F-seq@10=0.380 — so the fixed budget trades ~0.06 of B's accuracy for a budget-controlled comparison. One-list fusion is the identity ⇒ A's single retrieve still returns its top_k=10 |
+| Multi-list fusion | `retrieval/retrieve.py:rrf_fuse` — client-side RRF over per-query ranked lists; B fuses its iteration lists, F its sub-question lists. Answer context = fused top `FUSED_ANSWER_TOP_K = 20`, held **constant** across all fusing systems (B/F/F-seq) so the comparison isolates orchestration strategy, not the budget knob (raised 10→20 after exp36/37 showed retrieved gold evicted from a 10-slot context). The budget ablation (exp38/39/40) found the optimum is per-strategy — B@10=0.600 > B@20=0.540, but F-seq@20=0.540 ≫ F-seq@10=0.380 — so a fixed value was adopted for a controlled comparison. Budget is now **uniform at 20 across ALL systems**: `top_k=20` (so A/A-minus also answer over 20) = `FUSED_ANSWER_TOP_K=20`, removing the earlier A=10 vs fusing=20 asymmetry |
 | LLM call         | `llm/client.py:generate` — LiteLLM, `temperature=0`, returns content + tokens + cost |
-| Top-k            | `settings.top_k = 10` per retrieve() call (A answers over all 10; B/F fuse their iteration/sub-question lists to top-10 via `FUSED_ANSWER_TOP_K`) |
+| Top-k            | `settings.top_k = 20` per retrieve() call — the uniform answer budget (A/A-minus answer over their 20; B/F/F-seq fuse iteration/sub-question lists to `FUSED_ANSWER_TOP_K=20`). `retrieval_pool=40` (≈2× top_k) keeps the reranker selecting, not just reordering |
 | Trace capture    | `tracing.py:init_tracing` — auto-instruments LangChain + LiteLLM via openinference |
 
 ### Per-system spec (A and B; F has its own section below)
@@ -335,9 +335,9 @@ aws_region              = "eu-west-2"
 embedding_model         = "BAAI/llm-embedder"   # 768-dim
 embedding_dim           = 768
 opensearch_index        = "rag-chunks"
-top_k                   = 10
-fused_answer_top_k      = 20                     # answer-context budget for ALL fusing systems (B/F/F-seq), held constant for a controlled comparison; per-strategy optimum differs (ablation exp38/39/40)
-retrieval_pool          = 20                     # hybrid first-stage pool size before rerank
+top_k                   = 20                     # uniform answer budget; A/A-minus answer over their top-20, = fused_answer_top_k (removes the old A=10 asymmetry)
+fused_answer_top_k      = 20                     # answer-context budget for B/F/F-seq (fused top-N); = top_k so the budget is uniform across all 8 systems
+retrieval_pool          = 40                     # hybrid first-stage pool before rerank (~2× top_k so the reranker selects, not just reorders)
 reranker_model          = "BAAI/bge-reranker-v2-m3"
 rerank_provider         = "local"                # "local" cross-encoder | "bedrock-cohere"
 max_agent_steps         = 5
