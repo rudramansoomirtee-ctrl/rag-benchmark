@@ -27,10 +27,10 @@ The design comprises **two studies sharing one frozen substrate**:
   F, F-seq) are evaluated under three language models over two datasets. Because the retriever, the
   corpus, the prompts, and the evaluation harness are identical across every cell, any measured
   difference is attributable to orchestration (and model), not to confounded engineering choices.
-- **Study 2 — Retrieval pipeline.** Orchestration is held at its two simplest forms (naive,
-  iterative) and the *retriever* is varied — full hybrid+rerank versus dense-kNN-only. This 2×2 (A,
-  A-minus, B, B-minus) isolates the contribution of the retrieval pipeline and, crucially, its
-  *interaction* with orchestration.
+- **Study 2 — Retrieval pipeline.** Each orchestration is also run over a deliberately weakened,
+  dense-kNN-only retriever (the "-minus" twins), giving a full **4×2 retrieval×orchestration
+  factorial** (A/B/F/F-seq × hybrid/dense-only). This isolates the contribution of the retrieval
+  pipeline and, crucially, its *interaction* with orchestration and dataset.
 
 This single-variable framing — moving one factor at a time against a fixed substrate — is the
 methodological core of the dissertation and the basis of its originality claim (§3.2).
@@ -129,14 +129,16 @@ per-strategy (iterative accumulation prefers a narrower budget, fan-out a wider 
 was adopted for comparability (`DISSERTATION_AUDIT.md §5c`).
 
 **Study 2 — the retrieval arm.** The second arm holds orchestration constant and varies the retriever.
-A-minus and B-minus are byte-for-byte System A and System B with retrieval restricted to **dense-kNN
-nearest-neighbour search only** — no BM25 lexical matching, no reciprocal-rank fusion, no
-cross-encoder rerank (a per-call `retrieve(semantic_only=True)` switch, §3.4). Each pair is
-budget-matched (A/A-minus over top-10; B/B-minus over the fused top-20), so **A↔A-minus** and
-**B↔B-minus** isolate the retrieval-pipeline contribution exactly, and the difference between those two
-deltas measures whether orchestration *compensates for* a weaker retriever. This arm replaces the
-earlier F-tuned "stacked engineering ceiling": rather than confound several levers in one system, the
-retriever is now a clean, separately-manipulated factor.
+Every system has a dense-kNN-only twin — A-minus, B-minus, F-minus, F-seq-minus — byte-for-byte
+identical to its parent except that retrieval is restricted to **dense nearest-neighbour search only**:
+no BM25 lexical matching, no reciprocal-rank fusion, no cross-encoder rerank (a per-call
+`retrieve(semantic_only=True)` switch, §3.4). Each twin is budget-matched to its parent, so each
+**X↔X-minus** delta isolates the retrieval-pipeline contribution exactly *for that orchestration*. Run
+across both datasets, the four deltas test whether the pipeline's value is **consistent across
+orchestrations** and **dependent on the dataset** — the study's novel finding (§4.3). This complete
+factorial replaces the earlier F-tuned "stacked engineering ceiling": rather than confound several
+levers in one system, the retriever is a single, cleanly-manipulated factor crossed with every
+orchestration.
 
 ## 3.3 The orchestration strategies and their retrieval-ablated twins
 
@@ -152,11 +154,13 @@ kept stable for comparability with historical runs.
 | **B** | Iterative RAG | iterative reformulation loop (≤5) | hybrid |
 | **B-minus** | Iterative RAG (dense-only) | iterative | dense-kNN only |
 | **F** | Parallel decomposition | decompose → retrieve sub-questions in parallel | hybrid |
+| **F-minus** | Parallel decomposition (dense-only) | parallel decompose | dense-kNN only |
 | **F-seq** | Sequential decomposition (Self-Ask) | decompose → resolve hops one at a time | hybrid |
+| **F-seq-minus** | Sequential decomposition (dense-only) | sequential decompose | dense-kNN only |
 
-*Table 3.1 — System nomenclature. The orchestration axis (A/B/F/F-seq) is Study 1; the dense-only
-"-minus" variants are the retriever ablation of Study 2. "Hybrid" is the default and is left implicit
-in most tables; only the dense-only rows are tagged.*
+*Table 3.1 — System nomenclature: a full 4×2 retrieval×orchestration factorial. The orchestration axis
+(A/B/F/F-seq) is Study 1; the dense-only "-minus" twin of each (Study 2) ablates the retriever. "Hybrid"
+is the default and is left implicit in most tables; only the dense-only rows are tagged.*
 
 All systems implement a single `answer(query) -> RunResult` protocol (`systems/base.py`), so the
 runner treats them interchangeably and only the control logic varies.
@@ -239,11 +243,14 @@ flowchart TB
 ```
 *Figure 3.5 — System F-seq: ordered hops, each substituting the prior hop's resolved answer into its retrieval query, fused to the 20-chunk budget for one final answer.*
 
-**A-minus and B-minus — the retrieval-ablated twins.** A-minus and B-minus are A and B with retrieval
-restricted to dense-kNN only (§3.4). They are not new orchestrations — they are the *same* naive and
-iterative logic over a deliberately weakened retriever, and exist solely to isolate the retrieval
-pipeline in Study 2. F and F-seq have no "minus" twin: their value is the decomposition logic, and the
-retriever effect they would show is already captured by A-minus/B-minus.
+**The "-minus" twins — the retrieval-ablated systems.** Each orchestration has a dense-kNN-only twin —
+A-minus, B-minus, F-minus, F-seq-minus — identical to its parent except that retrieval is restricted to
+dense nearest-neighbour search (§3.4). They are not new orchestrations: each runs the *same* control
+logic over a deliberately weakened retriever, completing a full 4×2 retrieval×orchestration factorial.
+This lets Study 2 test whether the retrieval-pipeline effect is *consistent across orchestrations* (does
+dense-only help/hurt the same way under naive, iterative and decomposition control?) — not just for the
+naive and iterative cases. It is what makes the dataset-dependent retriever finding (§4.3) robust rather
+than a property of one orchestration.
 
 Both F and F-seq **degrade gracefully**: a decomposition that fails to parse yields no sub-questions
 rather than a crash, so the system falls back to A's behaviour. This fallback is not merely defensive —

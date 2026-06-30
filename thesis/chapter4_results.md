@@ -35,8 +35,9 @@ manipulate different variables:
 
 **System nomenclature (codes in tables; full names in prose — see Table 3.1):**
 **A** = Single-pass RAG · **B** = Iterative RAG · **F** = Parallel decomposition · **F-seq** =
-Sequential decomposition (Self-Ask) · **A-minus / B-minus** = the dense-only (semantic-kNN) retriever
-ablations of A and B. The hybrid retriever is the default; only dense-only rows are tagged.
+Sequential decomposition (Self-Ask). Each has a dense-kNN-only twin — **A-minus / B-minus / F-minus /
+F-seq-minus** — forming a full 4×2 retrieval×orchestration factorial. The hybrid retriever is the
+default; only dense-only rows are tagged.
 
 ```mermaid
 flowchart TB
@@ -154,16 +155,19 @@ decompose parse-fails — see §4.6.)
 *Evidence: `compute-metrics`; N3 ceiling. The 2×2 of retriever {hybrid+rerank, semantic-only} ×
 orchestration {naive, iterative}.*
 
-This study isolates the value of the hybrid+rerank pipeline by comparing each system to its
-semantic-kNN-only twin (A-minus, B-minus), on both datasets. It is the study's distinctive result:
-**the value of the retrieval pipeline is dataset-dependent and interacts with orchestration.**
+This study isolates the value of the hybrid+rerank pipeline by comparing each orchestration to its
+semantic-kNN-only twin (A-minus, B-minus, F-minus, F-seq-minus), on both datasets — a full 4×2
+factorial. It is the study's distinctive result: **the value of the retrieval pipeline is
+dataset-dependent and interacts with orchestration.**
 
-**Table 4.3 — Retriever × orchestration 2×2 (containment accuracy), per dataset, per model.**
+**Table 4.3 — Retriever × orchestration 4×2 (containment accuracy), per dataset, per model.**
 
-| | hybrid+rerank | semantic-only | Δ (semantic − hybrid) |
+| Orchestration | hybrid+rerank | dense-only | Δ (dense − hybrid) |
 |---|---|---|---|
 | naive (A / A-minus) | `[INSERT]` | `[INSERT]` | `[INSERT]` |
 | iterative (B / B-minus) | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| parallel decomp. (F / F-minus) | `[INSERT]` | `[INSERT]` | `[INSERT]` |
+| sequential decomp. (F-seq / F-seq-minus) | `[INSERT]` | `[INSERT]` | `[INSERT]` |
 
 > **Pilot — DeepSeek-V3, n=50 (exp38/41/42/43):**
 > | Dataset | A (hybrid) | A-minus (sem.) | B (hybrid) | B-minus (sem.) |
@@ -174,6 +178,9 @@ semantic-kNN-only twin (A-minus, B-minus), on both datasets. It is the study's d
 > On news the pipeline is worth **+0.20** (A vs A-minus); on MuSiQue it is flat-to-negative, and
 > **dense-only + iteration (B-minus 0.640) is the best system on MuSiQue**. The semantic−hybrid gap
 > *widens* with iteration (+0.04 naive → +0.10 iterative).
+> The decomposition twins (**F-minus, F-seq-minus**) complete the 4×2 factorial and are filled by the
+> final matrix; the open question they answer is whether **dense-only decomposition** beats B-minus on
+> MuSiQue — i.e. whether F-seq-minus, not B-minus, is the true MuSiQue champion.
 
 **Figure 4.5** — clustered bars: accuracy by retriever, grouped by dataset, with the naive/iterative
 pair side by side. **The figure that carries the novel finding.**

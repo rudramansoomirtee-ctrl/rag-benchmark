@@ -131,8 +131,9 @@ RETRIEVE → ROUTE ──(reformulate)──┐
   the final step, so `k=1` degenerates to one retrieve→answer (≈ A) rather than
   forcing "No answer".
 - **Iteration budget** is per-instance. The B1/B3/B5 sweep (budgets 1/3/5 as separate
-  registry entries) was **removed** — `SYSTEM_REGISTRY` is now just `A,B,F,F-seq`;
-  historical sweep runs remain in the DB.
+  registry entries) was **removed** — `SYSTEM_REGISTRY` is now the 4×2 retrieval×orchestration
+  factorial `A, A-minus, B, B-minus, F, F-minus, F-seq, F-seq-minus` (the `-minus` twins force
+  `retrieve(semantic_only=True)`); historical sweep runs remain in the DB.
 - **Evidence accumulates across iterations** (IRCoT-style union): route, reformulate
   and answer all operate on `rrf_fuse(iteration_hits)[:FUSED_ANSWER_TOP_K]` — the
   fused working memory, not just the latest batch. `retrieved_chunk_ids` persists

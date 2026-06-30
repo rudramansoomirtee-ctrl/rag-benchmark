@@ -116,12 +116,15 @@ def _decompose(query: str) -> tuple[list[str], int, int, float]:
 class SystemF:
     name = "F"
 
+    def __init__(self, semantic_only: bool = False):
+        self.semantic_only = semantic_only
+
     def answer(self, query: str) -> RunResult:
         t0 = time.time()
         subs, tin, tout, cost = _decompose(query)
 
         queries = [query, *subs]
-        ranked_lists = [retrieve(q, top_k=settings.top_k) for q in queries]
+        ranked_lists = [retrieve(q, top_k=settings.top_k, semantic_only=self.semantic_only) for q in queries]
         fused = rrf_fuse(ranked_lists)
 
         answer_chunks = fused[: FUSED_ANSWER_TOP_K]

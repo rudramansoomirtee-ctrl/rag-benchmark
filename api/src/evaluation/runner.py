@@ -92,27 +92,28 @@ def _corpus_fingerprint(session, datasets: list[str]) -> dict:
     return fp
 
 
-# Final lineup: A (naive), A-minus (naive over a semantic-kNN-only retriever),
-# B (iterative agent, default 5-step budget), B-minus (B over the semantic-only
-# retriever), F (PARALLEL decomposition + RRF), F-seq (SEQUENTIAL self-ask
-# decomposition — resolves each hop and carries the bridge answer forward).
-# A-minus-vs-A isolates the retrieval-pipeline effect (semantic-only vs
-# hybrid+rerank, orchestration fixed); A-vs-B/F/F-seq isolate orchestration
-# (retriever fixed). B-minus-vs-B vs A-minus-vs-A tests whether iterative
-# orchestration COMPENSATES for a weak retriever (a smaller B drop = compensation).
-# F-vs-F-seq isolates parallel-vs-sequential decomposition; F-seq-vs-B isolates
-# pre-decomposed self-ask vs free-form iteration. System G (multi-tool agentic),
-# the B1/B3/B5 iteration sweep, and
-# F-tuned (decomposition + CoT + source-aware retrieval) were all removed after
-# their runs showed no value over the baselines; historical runs (incl. F-tuned
-# exp18-26) remain in the DB.
+# Full 4×2 retrieval×orchestration factorial. Orchestration axis: A (naive),
+# B (iterative agent, 5-step budget), F (PARALLEL decomposition + RRF), F-seq
+# (SEQUENTIAL self-ask decomposition — resolves each hop, carries the bridge
+# forward). Retriever axis: hybrid (default) vs dense-kNN-only (the "-minus"
+# variants, via semantic_only=True). So A/B/F/F-seq each have a -minus twin.
+# A-vs-B/F/F-seq isolate orchestration (retriever fixed); the X-vs-X-minus deltas
+# isolate the retrieval-pipeline effect for each orchestration — together they
+# show whether the best retriever is dataset-dependent and whether it interacts
+# with orchestration (the study's novel finding). F-vs-F-seq isolates
+# parallel-vs-sequential decomposition; F-seq-vs-B isolates pre-decomposed
+# self-ask vs free-form iteration. System G (multi-tool agentic), the B1/B3/B5
+# sweep, and F-tuned were removed after showing no value; historical runs
+# (incl. F-tuned exp18-26) remain in the DB.
 SYSTEM_REGISTRY: dict[str, Callable[[], System]] = {
     "A": SystemA,
     "A-minus": SystemAMinus,
     "B": SystemB,
     "B-minus": lambda: SystemB(semantic_only=True),
     "F": SystemF,
+    "F-minus": lambda: SystemF(semantic_only=True),
     "F-seq": SystemFSeq,
+    "F-seq-minus": lambda: SystemFSeq(semantic_only=True),
 }
 
 

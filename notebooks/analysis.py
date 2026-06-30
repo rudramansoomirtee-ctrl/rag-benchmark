@@ -29,7 +29,9 @@ def __():
         "B": "Iterative RAG (B)",
         "B-minus": "Iterative RAG · dense-only (B-minus)",
         "F": "Parallel decomposition (F)",
+        "F-minus": "Parallel decomposition · dense-only (F-minus)",
         "F-seq": "Sequential decomposition / Self-Ask (F-seq)",
+        "F-seq-minus": "Sequential decomposition · dense-only (F-seq-minus)",
         "F-tuned": "F-tuned · stacked, retired (F-tuned)",
         "G": "Multi-tool agentic · retired (G)",
     }

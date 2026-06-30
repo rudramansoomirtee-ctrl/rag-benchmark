@@ -259,10 +259,12 @@ ids in exp36 `config_json.selection`, reused via `--query-ids`; MultiHop:
   decomposition — resolves each hop, substitutes the resolved bridge answer into the
   next hop's retrieval query (fixes F's dead-bridge "that director" problem), answers
   over the RRF-fused union of all hops. Shares F's `DECOMPOSE_FEWSHOT_PROMPT`/`_decompose`.
-- **Added A-minus / B-minus**: A and B over a dense-kNN-only retriever (no BM25/RRF/rerank)
-  via a new per-call `retrieve(semantic_only=True)`. The **retrieval-pipeline axis**,
-  orthogonal to orchestration.
-- `SYSTEM_REGISTRY` = A, A-minus, B, B-minus, F, F-seq.
+- **Added a dense-kNN-only twin for every orchestration** — A-minus, B-minus, F-minus, F-seq-minus
+  (via a per-call `retrieve(semantic_only=True)`) — a full **4×2 retrieval×orchestration factorial**.
+  Each `X↔X-minus` delta isolates the retrieval-pipeline effect for that orchestration; together they
+  test whether the dataset-dependent retriever finding holds across *all* orchestrations.
+- `SYSTEM_REGISTRY` = A, A-minus, B, B-minus, F, F-minus, F-seq, F-seq-minus (8). Nova Lite runs only
+  the four non-decomposition systems (A/A-minus/B/B-minus) — F-family decompose parse-fails on Nova.
 
 ### Tier-1 answer-quality changes (lift every system sharing `ANSWER_SYSTEM_PROMPT`)
 1. **Softened answer prompt** — licenses synthesis-derived answers; refuses only when a

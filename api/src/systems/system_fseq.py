@@ -66,11 +66,16 @@ def _is_resolved(sub_answer: str) -> bool:
 class SystemFSeq:
     name = "F-seq"
 
+    def __init__(self, semantic_only: bool = False):
+        self.semantic_only = semantic_only
+
     def answer(self, query: str) -> RunResult:
         t0 = time.time()
         subs, tin, tout, cost = _decompose(query)
 
-        ranked_lists: list[list[dict]] = [retrieve(query, top_k=settings.top_k)]
+        ranked_lists: list[list[dict]] = [
+            retrieve(query, top_k=settings.top_k, semantic_only=self.semantic_only)
+        ]
         resolved: list[tuple[str, str]] = []
 
         for sub in subs:
@@ -79,7 +84,7 @@ class SystemFSeq:
                 search_q = f"{sub} (known so far: {known})"
             else:
                 search_q = sub
-            hits = retrieve(search_q, top_k=settings.top_k)
+            hits = retrieve(search_q, top_k=settings.top_k, semantic_only=self.semantic_only)
             ranked_lists.append(hits)
 
             hop = generate(messages=[
