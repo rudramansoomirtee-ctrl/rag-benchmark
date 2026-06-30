@@ -142,10 +142,12 @@
       <h2>Ask a question</h2>
       <label>System</label>
       <div class="systems">
-        <label><input type="radio" name="sys" value="A" checked> A — naive RAG</label>
-        <label><input type="radio" name="sys" value="B"> B — agent loop</label>
-        <label><input type="radio" name="sys" value="F"> F — decomposition</label>
-        <label><input type="radio" name="sys" value="F-tuned"> F-tuned — decomposition + CoT + source-aware retrieval</label>
+        <label><input type="radio" name="sys" value="A" checked> A — Single-pass RAG</label>
+        <label><input type="radio" name="sys" value="B"> B — Iterative RAG</label>
+        <label><input type="radio" name="sys" value="F"> F — Parallel decomposition</label>
+        <label><input type="radio" name="sys" value="F-seq"> F-seq — Sequential decomposition (Self-Ask)</label>
+        <label><input type="radio" name="sys" value="A-minus"> A-minus — Single-pass, dense-only retriever</label>
+        <label><input type="radio" name="sys" value="B-minus"> B-minus — Iterative, dense-only retriever</label>
       </div>
       <p style="margin:6px 0"><label style="font-weight:400;cursor:pointer"><input type="checkbox" id="trace-toggle" checked> 🔬 Glass-box trace — show decomposition, retrieval, rerank reordering &amp; fusion</label></p>
       <label>Query</label>
@@ -616,7 +618,7 @@
         label: p.system, value: p.mean_steps, color: sysColor(p.system, all),
       }));
       const steps = stepItems.length ? `<div class="chartbox"><h4>LLM calls / retrievals per query</h4>
-        <p class="cap">Mean trajectory length (n_steps) — the cost driver: A≈1, F/F-tuned≈2, B≈2×iterations.</p>
+        <p class="cap">Mean trajectory length (n_steps) — the cost driver: A≈1, F/F-seq≈2+, B≈2×iterations.</p>
         ${svgBarsCI(stepItems, { fmt: v => v.toFixed(2) })}</div>` : '';
       el.innerHTML = (cost + lat + steps) || '<p class="muted">No cost/latency data.</p>';
     }

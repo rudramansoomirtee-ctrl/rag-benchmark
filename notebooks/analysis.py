@@ -261,7 +261,7 @@ def __(agreement, np, pd, plt, runs_m):
 
 # ---- N2: cost & latency dispersion + accuracy bootstrap CI (RQ2/RQ4) ----
 @app.cell
-def __(bootstrap_ci, pd, runs_m):
+def __(bootstrap_ci, disp, pd, runs_m):
     _recs = []
     for _s, _g in runs_m.groupby("system"):
         _ok = _g["m_contains"].astype(bool)
@@ -278,17 +278,18 @@ def __(bootstrap_ci, pd, runs_m):
             cost_per_correct=(_cost.sum() / _ncorrect if _ncorrect else float("nan")),
         ))
     variance_tbl = pd.DataFrame(_recs).sort_values("system").reset_index(drop=True)
+    variance_tbl["system"] = variance_tbl["system"].map(disp)
     variance_tbl
     return (variance_tbl,)
 
 
 # ---- Cost per query per system (RQ2) ----
 @app.cell
-def __(bootstrap_ci, pd, plt, runs_m):
+def __(bootstrap_ci, disp, pd, plt, runs_m):
     # The per-query economic unit. Retrieval is local (embeddings + OpenSearch +
     # cross-encoder all run in-process, $0), so 100% of per-query cost is Bedrock
     # LLM generation — differences are purely #LLM-calls × tokens. mean_steps is
-    # the driver: A≈1 call, F/F-tuned≈2 (decompose+answer), B≈2×iterations.
+    # the driver: A≈1 call, F/F-seq≈2+ (decompose+answer), B≈2×iterations.
     _recs = []
     for _s, _g in runs_m.groupby("system"):
         _c = _g["cost_usd"].dropna().astype(float)
@@ -304,6 +305,7 @@ def __(bootstrap_ci, pd, plt, runs_m):
             total_cost=_c.sum(),
         ))
     cost_per_query = pd.DataFrame(_recs).sort_values("cost_per_query").reset_index(drop=True)
+    cost_per_query["system"] = cost_per_query["system"].map(disp)
 
     _fig, _ax = plt.subplots(figsize=(7, 4.5))
     _x = list(range(len(cost_per_query)))
@@ -322,7 +324,7 @@ def __(bootstrap_ci, pd, plt, runs_m):
 
 # ---- N1: rank stability across models/experiments (RQ3/RQ4) ----
 @app.cell
-def __(engine, kendall_tau_b, pd):
+def __(disp, engine, kendall_tau_b, pd):
     # One column per experiment (labelled with its model). Kendall tau-b between
     # columns measures whether the system ranking is stable across model tiers.
     # Needs >=2 experiments (the 4x3 matrix) to be meaningful.
@@ -357,6 +359,7 @@ def __(engine, kendall_tau_b, pd):
         rank_tau.index = _names
         rank_tau.columns = _names
         rank_pivot = _piv.rename(columns={c: f"{_labels.get(c, '?')} (#{c})" for c in _cols})
+    rank_pivot.index = rank_pivot.index.map(disp)
     rank_pivot
     return rank_pivot, rank_tau
 
