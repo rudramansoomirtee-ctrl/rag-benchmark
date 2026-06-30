@@ -386,10 +386,12 @@ dependency.
 **Retrieval quality** uses the benchmark's own set — Hits@4, Hits@10, MRR@10, MAP@10 — plus precision
 and recall at five.
 
-**Faithfulness** is computed for *every* run, independent of strategy, by the Vectara HHEM model: the
-retrieved chunk texts form the premise, the answer the hypothesis, and a score below a **fixed**
-threshold (`hhem_threshold`, an empirical operating point — no longer RAGTruth-calibrated) flags the
-answer as unfaithful.
+**Faithfulness** (hallucination / grounding) is **out of scope for the final evaluation.** An earlier
+design computed a Vectara-HHEM faithfulness score per run; that subsystem was removed, so the final
+matrix does not report faithfulness. The correctness claims rest on the deterministic containment
+primary and the lexical secondaries above; faithfulness measurement is noted as future work. *(The
+`runs.hhem_score`/`flagged` and `metrics.avg_faithfulness`/`pct_flagged` columns remain in the schema
+but are unpopulated.)*
 
 **Cost and efficiency.** Each run records billed dollar cost, token counts, latency and trajectory
 length. Two aggregates matter most: `total_cost_usd` and **`cost_per_correct`** — dollars per correct

@@ -120,7 +120,7 @@ pattern as ours), InstructRAG (ICLR'25), RankRAG (NeurIPS'24).
 | Containment accuracy (Cover-EM / Acc) | gold appears in response | **MultiHop-RAG official (word-intersection — looser)**, Adaptive-RAG, Self-RAG, Self-Ask app., R1-Searcher ACC_R | ✅ `contains_match` (primary) — stricter than official scorer |
 | LLM-judge | CRAG rubric perfect/acceptable/missing/incorrect | CRAG (KDD'24): human **1/0.5/0/−1**; auto-eval merges to 3-way 1/0/−1; R1-Searcher ACC_L | ✅ `judge.py` — **we use the human-rubric weights (4-way, 0.5)**; disclose variant |
 | Supporting-fact EM/F1, joint EM/F1 | sentence-level evidence match | HotpotQA | ❌ N/A (no sentence gold; our R@5 plays this role) |
-| Faithfulness | grounded-in-context score | RAGAS (LLM-based; excluded by design), **HHEM** (classifier; beats GPT-3.5/4 zero-shot on RAGTruth-style benchmarks), RAGTruth response-level P/R/F1 | ✅ HHEM mean + %flagged, RAGTruth-calibrated threshold |
+| Faithfulness | grounded-in-context score | RAGAS (LLM-based; excluded by design), **HHEM** (classifier), RAGTruth response-level P/R/F1 | ⚠ **descoped** — HHEM subsystem removed; `avg_faithfulness`/`pct_flagged` columns retained but unpopulated. Future work |
 | Steps / #retrievals | avg retrieve-generate rounds | **Adaptive-RAG "Step"**, Iter-RetGen T, Auto-RAG | ✅ `n_steps` / `avg_trajectory_length` |
 | Time / latency | per-query time (Adaptive-RAG: *relative*) | Adaptive-RAG | ✅ `latency_ms` absolute + N2 p50/p95 (stronger) |
 | Token consumption | tokens per query | CoRAG; third-party (π-CoT, A2RAG) | ✅ `tokens_in/out` |
@@ -199,7 +199,7 @@ iterative multi-hop" figure seen during search was **unattributable → do not c
 **Not citable** (search/discovery aids only, not primary): TianPan blog, ML Journey,
 EmergentMind topic pages. Use the BEIR + MuSiQue primaries above.
 
-**Our contribution (no prior found):** the controlled **retriever × orchestration 2×2**
-showing the optimal retriever flips by dataset and interacts with orchestration (hybrid
-wins on news; dense+iteration wins on MuSiQue). BEIR supplies domain-dependence; MuSiQue
-supplies the BM25-distractor mechanism; the **interaction** is ours.
+**Our contribution (no prior found):** the controlled **retriever × orchestration 4×2 factorial**
+(A/B/F/F-seq × hybrid/dense-only) showing the optimal retriever flips by dataset and interacts with
+orchestration (hybrid wins on news; dense+iteration wins on MuSiQue). BEIR supplies domain-dependence;
+MuSiQue supplies the BM25-distractor mechanism; the **interaction** is ours.

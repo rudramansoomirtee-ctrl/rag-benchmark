@@ -140,13 +140,12 @@ RETRIEVE → ROUTE ──(reformulate)──┐
   that fused answering context; `all_retrieved_chunk_ids` the raw union. Before
   this, a chunk found at step 1 was invisible by step 3.
 
-**Faithfulness — HHEM on every run** (`evaluation/runner.py:_faithfulness`, not a system):
-- Computed for **every** system's run (A/B/F) ⇒ faithfulness is a column for all.
-- Re-fetches retrieved chunk text via `mget(retrieved_chunk_ids)`, builds
-  `premise = "\n\n".join(texts)`, scores `faithfulness/hhem.py:score([(premise, answer)])`.
-- `flagged = score < settings.hhem_threshold`. Empty retrieval / HHEM error →
-  `(None, None)` and the run still persists.
-- Replaces the old passive Systems C/D, which only attached this score to A/B.
+**Faithfulness — DESCOPED (HHEM removed).** The `faithfulness/hhem.py` source has been removed and the
+runner no longer computes faithfulness; `runs.hhem_score`/`flagged` are never written (always NULL) and
+`metrics.avg_faithfulness`/`pct_flagged` stay empty. The schema columns remain. Faithfulness is out of
+scope for the final evaluation (future work). Do **not** describe HHEM as computed-per-run in
+slides/thesis. To restore it you would rebuild `faithfulness/hhem.py` (Vectara HHEM wrapper) and re-add
+a per-run call in the runner.
 
 ### Context formatting — `retrieval/retrieve.py:format_context`
 

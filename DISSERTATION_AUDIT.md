@@ -15,6 +15,14 @@ literature.
 
 Legend: ✅ on point · ⚠️ partial (wording fix or pending run) · ❌ missing/wrong.
 
+> **⚠️ Design has evolved since the original audit (§§1–4, 2026-06-11).** Those sections audit the
+> *original* slide design (a 4×3 A/B/F/F-tuned matrix, MultiHop-only, HHEM faithfulness). **§5c is
+> authoritative for the current design:** a 4×2 retrieval×orchestration factorial (A/B/F/F-seq × hybrid/
+> dense-only = 8 systems) over MuSiQue + MultiHop on Qwen3-32B / DeepSeek-V3 / Nova Lite. Two scope
+> changes not yet reflected in §§1–4: **F-tuned → F-seq** (+ the A/B/F/F-seq "-minus" twins), and
+> **faithfulness/HHEM is descoped** (subsystem removed; columns unpopulated; future work). Read §§1–4 as
+> historical; trust §5c + the thesis chapters for the as-built design.
+
 ---
 
 ## 1. Slide ↔ repo mapping

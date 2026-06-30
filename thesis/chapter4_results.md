@@ -30,8 +30,8 @@ manipulate different variables:
   fused*. Run across three models and both datasets.
 - **Study 2 — Retrieval pipeline** (the study's novel contribution). Orchestration is held at its two
   simplest forms (naive, iterative) and the *retriever* is varied: full hybrid+rerank vs dense-kNN-only.
-  The **A / A-minus / B / B-minus** 2×2, run on both datasets, isolates the value of the retrieval
-  pipeline and its interaction with orchestration.
+  The dense-only "-minus" twin of every orchestration (A/B/F/F-seq), run on both datasets, forms a
+  4×2 factorial that isolates the value of the retrieval pipeline and its interaction with orchestration.
 
 **System nomenclature (codes in tables; full names in prose — see Table 3.1):**
 **A** = Single-pass RAG · **B** = Iterative RAG · **F** = Parallel decomposition · **F-seq** =
@@ -152,7 +152,7 @@ decompose parse-fails — see §4.6.)
 
 ## 4.3 Study 2 — The retrieval pipeline and its interaction with orchestration (novel contribution)
 
-*Evidence: `compute-metrics`; N3 ceiling. The 2×2 of retriever {hybrid+rerank, semantic-only} ×
+*Evidence: `compute-metrics`; N3 ceiling. The 4×2 of retriever {hybrid+rerank, semantic-only} ×
 orchestration {naive, iterative}.*
 
 This study isolates the value of the hybrid+rerank pipeline by comparing each orchestration to its
@@ -324,7 +324,7 @@ One line per research question (fill after the sections above):
 | Artefact | Source |
 |---|---|
 | T4.1/T4.2 accuracy, F4.1 bars | `compute-metrics`, `metrics-by-type`, N2 |
-| T4.3 / F4.5 retriever×orchestration 2×2 | `compute-metrics` (A/A-minus/B/B-minus cells) |
+| T4.3 / F4.5 retriever×orchestration 4×2 | `compute-metrics` (all 8 cells: X / X-minus) |
 | T4.4 quality, F4.3 agreement | `compute-metrics`, N4 `agree_mat` |
 | T4.5 cost, F4.4 Pareto | N2 `variance_tbl`, N5 `fig_pareto` |
 | T4.6 rank stability | N1 `kendall_tau_b`, N2 CIs |

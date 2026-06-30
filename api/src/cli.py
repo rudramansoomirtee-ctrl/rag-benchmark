@@ -108,7 +108,7 @@ def rescore(experiment: int = typer.Option(None, "--experiment", help="Re-score 
     no LLM calls. Failed runs (NULL answer) keep is_correct=NULL ("crash is wrong").
     Re-run compute-metrics afterwards to refresh the metrics table.
     """
-    from src.evaluation.metrics import contains_match
+    from src.evaluation.metrics import answer_match, contains_match
 
     session = get_session()
     try:
@@ -120,7 +120,17 @@ def rescore(experiment: int = typer.Option(None, "--experiment", help="Re-score 
         for r, q in rows:
             if r.answer is None:
                 continue
-            new = contains_match(r.answer, q.ground_truth) if q.ground_truth else None
+            # Mirror the runner's scoring: MuSiQue is alias-aware via answer_match;
+            # everything else uses contains_match. Using contains_match unconditionally
+            # would silently DOWNGRADE MuSiQue rows (dropping alias + reverse-containment
+            # credit) on every rescore.
+            if not q.ground_truth:
+                new = None
+            elif q.dataset == "musique":
+                golds = [q.ground_truth] + ((q.query_metadata or {}).get("answer_aliases") or [])
+                new = answer_match(r.answer, golds)
+            else:
+                new = contains_match(r.answer, q.ground_truth)
             if new != r.is_correct:
                 r.is_correct = new
                 changed += 1
