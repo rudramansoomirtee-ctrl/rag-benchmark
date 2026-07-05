@@ -37,7 +37,7 @@ methodological core of the dissertation and the basis of its originality claim (
 
 ```mermaid
 flowchart TB
-    SUB["Frozen substrate<br/>one seeded stratified sample / dataset · local bge reranker · temp 0 · same prompts"]:::fixed
+    SUB["Frozen substrate<br/>one seeded stratified sample / dataset · Cohere Rerank 3.5 · temp 0 · same prompts"]:::fixed
     SUB --> S1
     SUB --> S2
     subgraph S1["Study 1 — Orchestration (retriever fixed)"]
@@ -265,8 +265,9 @@ k-nearest-neighbour search run in parallel, fused by reciprocal-rank fusion to a
 re-ranked by a cross-encoder to the final top-*k*. Queries are embedded with `BAAI/llm-embedder` (768
 dimensions); the corpus is indexed in OpenSearch (HNSW, Lucene, cosine); the first-stage pool is forty
 (`retrieval_pool`, ≈2× the `top_k = 20` answer budget so the reranker selects rather than merely
-reorders); and the cross-encoder is the local `BAAI/bge-reranker-v2-m3` (chosen over a hosted
-reranker for the final matrix: it is free, reproducible, and removes an external dependency). Multi-list
+reorders); and the reranker is **Cohere Rerank 3.5** via AWS Bedrock (`cohere.rerank-v3-5:0`, served
+in eu-central-1), a strong hosted cross-encoder used consistently across the pilots and the final
+matrix (a local `BAAI/bge-reranker-v2-m3` fallback exists for provider outages). Multi-list
 fusion for B, F and F-seq uses a client-side reciprocal-rank fusion (`rrf_fuse`) independent of
 OpenSearch's absolute score scale.
 
@@ -277,7 +278,7 @@ flowchart LR
     EMB --> KNN["dense kNN · HNSW · cosine"]:::step
     BM --> RRF["RRF fuse · pool = 20"]:::step
     KNN --> RRF
-    RRF --> RR["cross-encoder rerank · bge-reranker-v2-m3"]:::step
+    RRF --> RR["rerank · Cohere Rerank 3.5 (Bedrock)"]:::step
     RR --> TK["top-k context"]:::out
     KNN -. "semantic_only = True (A-minus / B-minus)" .-> TK
     classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
@@ -306,7 +307,10 @@ and invoked via the **LiteLLM SDK** (not a proxy; the single-user setting makes 
 Inference is deterministic (`temperature = 0`). Per-call cost is read from the provider response
 (`response._hidden_params["response_cost"]`), with a per-token fallback, and persisted per run so the
 cost axis (§3.7) rests on billed figures, not estimates. As the embedder, reranker and faithfulness
-model run locally on CPU at no charge, the recorded `cost_usd` is the full variable cost.
+embedder runs locally on CPU at no charge, the recorded `cost_usd` captures the Bedrock LLM
+generation cost. The Cohere reranker is a separately-metered Bedrock API call **not** included in
+`cost_usd`; it is a small per-retrieval charge borne by the hybrid systems only (the dense-only
+"-minus" twins do not rerank), and is reported separately rather than folded into cost-per-correct.
 
 Two scoping constraints follow from this panel. First, the cross-model comparison (RQ3/RQ4) is framed
 as **rank stability across a cost-efficient capability gradient**, not an absolute "model strength"

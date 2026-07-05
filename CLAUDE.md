@@ -338,8 +338,8 @@ opensearch_index        = "rag-chunks"
 top_k                   = 20                     # uniform answer budget; A/A-minus answer over their top-20, = fused_answer_top_k (removes the old A=10 asymmetry)
 fused_answer_top_k      = 20                     # answer-context budget for B/F/F-seq (fused top-N); = top_k so the budget is uniform across all 8 systems
 retrieval_pool          = 40                     # hybrid first-stage pool before rerank (~2× top_k so the reranker selects, not just reorders)
-reranker_model          = "BAAI/bge-reranker-v2-m3"
-rerank_provider         = "local"                # "local" cross-encoder | "bedrock-cohere"
+reranker_model          = "BAAI/bge-reranker-v2-m3"   # used only when rerank_provider="local"
+rerank_provider         = "bedrock-cohere"       # DEFAULT: Cohere Rerank 3.5 via Bedrock (cohere.rerank-v3-5:0, eu-central-1). "local" = free CPU cross-encoder. NB Cohere rerank is a metered API cost NOT in runs.cost_usd
 max_agent_steps         = 5
 hhem_threshold          = 0.10                   # fixed empirical threshold for HHEM-2.1-open on news (RAGTruth calibration removed)
 ```

@@ -54,12 +54,14 @@ class Settings(BaseSettings):
     # (used by experiments 1-9); the swap is meaningful enough to warrant a
     # full re-run rather than a comparison across configurations.
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
-    # Reranker provider: "local" (CPU cross-encoder, free, used for exp ≤9) or
-    # "bedrock-cohere" (Cohere Rerank 3.5 via Bedrock — set RERANK_PROVIDER=bedrock-cohere
-    # in .env to switch). Bedrock rerank needs the model enabled in the Bedrock
-    # model-access page; failures fall back to the local cross-encoder so a bad
-    # config doesn't break a long run.
-    rerank_provider: str = "local"
+    # Reranker provider: "bedrock-cohere" (Cohere Rerank 3.5 via Bedrock — the DEFAULT
+    # and the reranker used for the final matrix and the pilots exp36-43) or "local"
+    # (CPU cross-encoder, free, used for exp ≤9). Bedrock rerank needs the model
+    # enabled in the Bedrock model-access page; failures fall back to the local
+    # cross-encoder so a bad config doesn't break a long run — NB this fallback can
+    # make retrieval inconsistent mid-matrix, so watch logs for it during final runs.
+    # Cohere rerank is a METERED Bedrock API call NOT captured in runs.cost_usd.
+    rerank_provider: str = "bedrock-cohere"
     bedrock_rerank_model_id: str = "cohere.rerank-v3-5:0"
     # Bedrock Rerank isn't offered in eu-west-2; call it in a supported region
     # (eu-central-1 Frankfurt) while LLM generation stays in aws_region.

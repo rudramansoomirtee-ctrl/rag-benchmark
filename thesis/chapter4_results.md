@@ -9,7 +9,7 @@
 > **To populate the final tables (your environment):**
 > 1. `alembic upgrade head`
 > 2. the frozen matrix (Study 1 + Study 2 below), each run prefixed `GIT_SHA=$(git rev-parse HEAD)`,
->    on **one** image build, over **one** seeded stratified sample per dataset, local `bge` reranker.
+>    on **one** image build, over **one** seeded stratified sample per dataset, Cohere Rerank 3.5.
 > 3. `compute-metrics --experiment N` (each) → accuracy, Token F1, cost, `pct_failed`.
 > 4. `metrics-by-type --experiment N` → per question-type / per hop-count.
 > 5. `notebooks/analysis.py` → figures F1–F5 from cells N1–N5.
@@ -41,7 +41,7 @@ default; only dense-only rows are tagged.
 
 ```mermaid
 flowchart TB
-    SUB["Frozen substrate · one seeded sample / dataset · local bge reranker · temp 0"]:::fixed
+    SUB["Frozen substrate · one seeded sample / dataset · Cohere Rerank 3.5 · temp 0"]:::fixed
     SUB --> S1
     SUB --> S2
     subgraph S1["Study 1 — Orchestration (retriever fixed)"]
@@ -72,7 +72,7 @@ flowchart TB
 | Git SHA (all runs) | `[INSERT — identical across runs]` |
 | Models | Qwen3-32B · DeepSeek-V3 · Nova Lite (all AWS Bedrock, LiteLLM SDK, temp 0) |
 | Datasets / *N* / seed | MuSiQue `[INSERT N]` · MultiHop-RAG `[INSERT N]` / `[INSERT seed]` |
-| Reranker | `BAAI/bge-reranker-v2-m3` (local) |
+| Reranker | Cohere Rerank 3.5 via Bedrock (`cohere.rerank-v3-5:0`, eu-central-1) |
 | Answer-context budget | 20 chunks, **uniform across all systems** (`top_k = 20` for A/A-minus; `fused_answer_top_k = 20` for B/F/F-seq) |
 | Identical `query_ids` per dataset across all cells | `[INSERT: confirmed yes/no]` |
 | Hardware (CPU/RAM) | `[INSERT — P3]` |
@@ -240,7 +240,8 @@ conservative. Flag any system whose ranking changes under a different metric.
 ## 4.5 Cost and latency — RQ2
 
 *Evidence: N2 `variance_tbl`; N5 `fig_pareto`. Costs are billed Bedrock figures
-(`response_cost`); local embedder/reranker/HHEM are free CPU, so `cost_usd` is the full variable cost.*
+(`response_cost`, LLM only); the embedder is free CPU, and the Cohere reranker is a metered Bedrock
+call **not** captured in `cost_usd` (borne by hybrid systems only) — reported separately.*
 
 **Table 4.5 — Cost, per system × model (both datasets pooled or split).**
 
