@@ -85,9 +85,10 @@ flowchart TB
 models spanning a real capability gradient — Nova Lite (weak) < Qwen3-32B (mid) < DeepSeek-V3
 (strong-but-cheap) — not a frontier panel; cross-model claims are framed accordingly (§3.5). One
 panel property is itself a result: **Nova Lite cannot run the decomposition systems** — its
-structured-output decoder parse-fails, so F/F-seq degrade to naive retrieval (pilot: avg 1.1 vs
-3.5–3.7 retrievals). F/F-seq are therefore reported on Qwen3 and DeepSeek-V3 only, and the Nova
-failure is reported as an orchestration-robustness finding (§4.6).
+structured-output decoder parse-fails, so F/F-seq degrade to naive retrieval (avg ~1.1 vs 3.5–3.7
+retrievals). All three models run all eight systems (symmetric matrix); Nova's F-family cells are
+reported explicitly as this degradation — they approximate Nova's own System A, not genuine
+decomposition — and constitute the orchestration-robustness finding (§4.6).
 
 ---
 
@@ -95,15 +96,15 @@ failure is reported as an orchestration-robustness finding (§4.6).
 
 *Evidence: `compute-metrics` (containment primary); `metrics-by-type`; N2.*
 
-**Table 4.1 — Containment accuracy, 4 strategies × 3 models, per dataset.** (Nova F/F-seq = n/a:
-decompose parse-fails — see §4.6.)
+**Table 4.1 — Containment accuracy, 4 strategies × 3 models, per dataset.** (Nova F/F-seq marked † =
+decompose parse-fails → degraded to naive, so these ≈ Nova A; see §4.6.)
 
 | System | \multicolumn — DeepSeek-V3 | Qwen3-32B | Nova Lite |
 |---|---|---|---|
 | A (naive) | `[INSERT]` | `[INSERT]` | `[INSERT]` |
 | B (iterative) | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| F (parallel decomp.) | `[INSERT]` | `[INSERT]` | n/a |
-| F-seq (sequential decomp.) | `[INSERT]` | `[INSERT]` | n/a |
+| F (parallel decomp.) | `[INSERT]` | `[INSERT]` | `[INSERT]` † |
+| F-seq (sequential decomp.) | `[INSERT]` | `[INSERT]` | `[INSERT]` † |
 
 *(Produce one Table 4.1 per dataset — MuSiQue and MultiHop-RAG — or stack them.)*
 

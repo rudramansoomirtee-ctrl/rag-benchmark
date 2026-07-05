@@ -271,8 +271,10 @@ ids in exp36 `config_json.selection`, reused via `--query-ids`; MultiHop:
   (via a per-call `retrieve(semantic_only=True)`) — a full **4×2 retrieval×orchestration factorial**.
   Each `X↔X-minus` delta isolates the retrieval-pipeline effect for that orchestration; together they
   test whether the dataset-dependent retriever finding holds across *all* orchestrations.
-- `SYSTEM_REGISTRY` = A, A-minus, B, B-minus, F, F-minus, F-seq, F-seq-minus (8). Nova Lite runs only
-  the four non-decomposition systems (A/A-minus/B/B-minus) — F-family decompose parse-fails on Nova.
+- `SYSTEM_REGISTRY` = A, A-minus, B, B-minus, F, F-minus, F-seq, F-seq-minus (8). All three models run
+  all 8 systems. On Nova Lite the F-family decompose parse-fails and degrades to naive retrieval
+  (measured n_steps ≈ 1 vs 3.5–3.7 on Qwen3/DeepSeek) — these cells are reported as the
+  orchestration-robustness result, not as genuine decomposition measurements.
 
 ### Tier-1 answer-quality changes (lift every system sharing `ANSWER_SYSTEM_PROMPT`)
 1. **Softened answer prompt** — licenses synthesis-derived answers; refuses only when a

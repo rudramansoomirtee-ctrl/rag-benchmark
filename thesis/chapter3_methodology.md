@@ -317,10 +317,12 @@ as **rank stability across a cost-efficient capability gradient**, not an absolu
 axis; frontier proprietary models are out of scope by design — the contribution is the cost-constrained
 regime (audit W6). Second, the panel surfaces a **model-robustness result**: Nova Lite cannot reliably
 execute the decomposition systems — its structured-output decoder parse-fails, so F and F-seq fall back
-to no sub-questions and degrade to naive retrieval (a pilot showed ~1.1 retrievals on Nova versus
-3.5–3.7 on Qwen3/DeepSeek). F and F-seq are therefore reported on Qwen3 and DeepSeek-V3 only, and the
-failure is itself a finding: *decomposition orchestration presupposes reliable structured-output
-generation, whereas iterative free-text reformulation (B) is the more model-robust multi-hop strategy*
+to no sub-questions and degrade to naive retrieval (measured: ~1.1 retrievals on Nova versus 3.5–3.7 on
+Qwen3/DeepSeek). All three models are nonetheless run over all eight systems for a symmetric matrix; on
+Nova the F-family results are reported explicitly as this **degradation** (they approximate System A),
+not as genuine decomposition. The failure is itself a finding: *decomposition orchestration presupposes
+reliable structured-output generation, whereas iterative free-text reformulation (B) is the more
+model-robust multi-hop strategy*
 (§4.6).
 
 ## 3.6 Datasets and sampling
