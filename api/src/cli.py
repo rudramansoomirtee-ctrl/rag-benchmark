@@ -167,8 +167,12 @@ def compute_metrics(experiment: int = typer.Option(..., "--experiment")):
 
         for (system, dataset), pairs in grouped.items():
             n = len(pairs)
-            p = sum(precision_at_k(r.retrieved_chunk_ids, q.relevant_chunk_ids, settings.top_k) for r, q in pairs) / n
-            rec = sum(recall_at_k(r.retrieved_chunk_ids, q.relevant_chunk_ids, settings.top_k) for r, q in pairs) / n
+            # k=5 EXPLICITLY — these land in the precision_at_5/recall_at_5 columns.
+            # Using settings.top_k here silently became P@20/R@20 when the answer
+            # budget rose to 20, mislabelling the stored metric. Other k values are
+            # recomputable post-hoc from runs.retrieved_chunk_ids.
+            p = sum(precision_at_k(r.retrieved_chunk_ids, q.relevant_chunk_ids, 5) for r, q in pairs) / n
+            rec = sum(recall_at_k(r.retrieved_chunk_ids, q.relevant_chunk_ids, 5) for r, q in pairs) / n
             correct = sum(1 for r, _ in pairs if r.is_correct)
             acc = correct / n
             # Crashed runs persist a NULL-answer stub; policy is "a crash is wrong"
