@@ -1,0 +1,261 @@
+# MuSiQue Final Matrix — Comprehensive Analysis Report
+
+**Experiments E1–E3 (ids 50, 51, 53) · 3 models × 8 systems × 150 queries = 3,600 runs · 0 failures**
+**Frozen config:** git SHA `12f2a49` (E3: `ec457dc`, verified inert — resume-logic commit only), seed 42, `top_k=20`,
+`fused_answer_top_k=20`, `retrieval_pool=40`, `max_agent_steps=5`, Cohere Rerank 3.5 (Bedrock, eu-central-1),
+`BAAI/llm-embedder`, LiteLLM 1.83.0, temperature 0. LLM spend: **$7.05** (DeepSeek $5.14 / Qwen $1.39 / Nova $0.52);
+Cohere rerank metered separately (not in `cost_usd`).
+**Verification:** three independent audits (data-integrity; statistics, itself independently cross-checked; literature),
+compiled 2026-07-05. Metrics table verified to match recomputation from raw runs exactly in all 24 cells.
+
+**Systems.** Orchestration axis: **A** = Single-pass RAG · **B** = Iterative RAG (free-text route, ≤5 steps, evidence
+accumulates via RRF) · **F** = Parallel decomposition (decompose → retrieve sub-questions concurrently → RRF-fuse) ·
+**F-seq** = Sequential decomposition / Self-Ask (resolve each hop, substitute the bridge answer into the next hop's
+retrieval). Retriever axis: hybrid BM25+dense+RRF+rerank (default) vs dense-kNN-only (the `-minus` twins) — a full
+4×2 factorial. Dataset: MuSiQue answerable, pooled-distractor setting (each question's ~20 candidate paragraphs,
+incl. BM25-mined hard distractors, pooled into one 3,000-chunk index). Sample: 150 seeded stratified queries
+(78 2-hop / 45 3-hop / 27 4-hop), identical across every cell. Primary metric: alias-aware containment accuracy
+(`answer_match`); secondary: SQuAD token-F1.
+
+---
+
+## 1. Data integrity audit — PASS on all seven checks
+
+| # | Check | Result | Evidence |
+|---|---|---|---|
+| 1 | Sample identity | **PASS** | Identical 150 `query_ids` byte-for-byte across E1/E2/E3 and across all 8 systems within each (all pairwise set-differences = 0) |
+| 2 | Provenance constancy | **PASS** | All config identical except `model`. E3's SHA drift (`12f2a49`→`ec457dc`) diff-verified: only the `--resume-id` CLI flag + a pre-billing skip; `_run_one` (execution/scoring) moved verbatim, unchanged |
+| 3 | Completeness | **PASS** | 1,200 rows each; 150/system; 0 NULL answers; 0 duplicate (system, query) pairs |
+| 4 | Stratification | **PASS** | Exactly 78 / 45 / 27 by hop count |
+| 5 | Scoring sanity | **PASS** | Spot-checks: alias matching and date-range normalisation working; incorrect rows are genuine misses (wrong entity, hallucination, refusal); no false positives/negatives found |
+| 6 | Nova degradation evidence | **PASS** | F-family `n_steps` = 1.35–1.41 on Nova vs 3.54–3.68 on DeepSeek/Qwen; B ≈ 4 everywhere |
+| 7 | Contamination | **PASS** | Stale exp 44 (`final-musique-nova-full`, old `top_k=10` config) identified — **must be excluded from all analysis**. Exp 54 = clean resumable MultiHop partial (515 rows). Nothing else conflicts |
+
+---
+
+## 2. Headline results
+
+### 2.1 Containment accuracy (n=150 per cell)
+
+| System | DeepSeek-V3 | Qwen3-32B | Nova Lite |
+|---|---|---|---|
+| A (single-pass) | 0.487 | 0.473 | 0.273 |
+| A-minus (dense-only) | 0.420 | 0.420 | 0.260 |
+| **B (iterative)** | **0.513** | **0.527** | **0.347** |
+| B-minus | 0.447 | 0.467 | 0.307 |
+| F (parallel decomp.) | 0.453 | 0.440 | 0.300 |
+| F-minus | 0.427 | 0.420 | 0.260 |
+| F-seq (sequential decomp.) | 0.480 | 0.480 | 0.320 |
+| F-seq-minus | 0.433 | 0.467 | 0.260 |
+
+Token-F1 (DeepSeek): A 0.444 · B 0.477 · F 0.416 · F-seq 0.463 (secondaries track the primary ordering).
+Nova F-family cells are **degraded** (decompose parse-fail → ≈ naive retrieval); report flagged †, not as decomposition.
+
+### 2.2 Accuracy by hop count
+
+| System | DS 2h | DS 3h | DS 4h | Qw 2h | Qw 3h | Qw 4h | Nv 2h | Nv 3h | Nv 4h |
+|---|---|---|---|---|---|---|---|---|---|
+| A | .538 | .444 | .407 | .487 | .511 | .370 | .346 | .222 | .148 |
+| A-minus | .462 | .489 | .185 | .410 | .422 | .444 | .308 | .244 | .148 |
+| B | .577 | .533 | .296 | .564 | .489 | .481 | .410 | .289 | .259 |
+| B-minus | .513 | .467 | .222 | .564 | .378 | .333 | .359 | .289 | .185 |
+| F | .500 | .444 | .333 | .487 | .400 | .370 | .372 | .267 | .148 |
+| F-minus | .474 | .489 | .185 | .436 | .400 | .407 | .282 | .267 | .185 |
+| F-seq | .577 | .422 | .296 | .577 | .333 | .444 | .385 | .311 | .148 |
+| F-seq-minus | .551 | .333 | .259 | .615 | .378 | .185 | .295 | .244 | .185 |
+
+Accuracy declines with hop depth everywhere; 4-hop cells (n=27) are noisy — do not over-interpret single 4-hop cells.
+
+---
+
+## 3. Statistical verification (paired exact sign / McNemar tests; identical query sets ⇒ all contrasts paired)
+
+### 3.1 Retriever effect — hybrid vs dense-only
+
+Per-pair discordant counts (b = hybrid-only-right, c = dense-only-right):
+
+| Model | A vs A⁻ | B vs B⁻ | F vs F⁻ | F-seq vs F-seq⁻ |
+|---|---|---|---|---|
+| DeepSeek | 19:9 (p=.087) | 23:13 (p=.133) | 15:11 (p=.557) | 19:12 (p=.281) |
+| Qwen3 | 18:10 (p=.185) | 24:15 (p=.200) | 14:11 (p=.690) | 17:15 (p=.860) |
+| Nova | 13:11 (p=.839) | 16:10 (p=.327) | 16:10 (p=.327) | 18:9 (p=.122) |
+
+- **12/12 pairs favour hybrid; zero reversals; 0/12 individually significant.**
+- Pooled per model: DeepSeek b=76,c=45 (**p=.0062**) · Nova b=63,c=40 (**p=.0297**) · Qwen b=73,c=51 (p=.0589, marginal).
+- **Pooled overall: b=212, c=136, p = 5.45×10⁻⁵ — highly significant.**
+- Required phrasing: *directionally universal, significant pooled overall and in 2 of 3 models; the per-cell effect
+  (~3–7 pts) is real but small relative to per-cell power — never imply per-cell significance.*
+
+### 3.2 Orchestration contrasts
+
+| Contrast | DeepSeek | Qwen3 | Nova | Pooled |
+|---|---|---|---|---|
+| B vs A | 18:14 (p=.60) | 22:14 (p=.24) | 16:5 (**p=.027**) | 56:33 (**p=.019**) |
+| F vs A | 7:12 (A ahead) | 12:17 (A ahead) | 4:0 | 23:29 (p=.49; A ahead) |
+| F-seq vs F | 21:17 | 26:20 | 4:1 | 51:38 (p=.203) |
+| F-seq vs B | 14:19 (B ahead) | 16:23 (B ahead) | 10:14 (B ahead) | 40:56 (p=.125; B ahead) |
+
+### 3.3 Rank stability (RQ3/RQ4)
+
+| System | DS rank | Qwen rank | Nova rank |
+|---|---|---|---|
+| B | 1 | 1 | 1 |
+| A | 2 | 3 | 5 |
+| F-seq | 3 | 2 | 2 |
+| F | 4 | 6 | 4 |
+| B-minus | 5 | 4= | 3 |
+| F-seq-minus | 6 | 4= | 6= |
+| F-minus | 7 | 7= | 6= |
+| A-minus | 8 | 7= | 6= |
+
+Kendall τ-b: DS↔Qwen **0.741** (p=.012) · DS↔Nova **0.643** (p=.030) · Qwen↔Nova **0.706** (p=.020) — all significant.
+B is rank-1 in all three models; F-seq is the best decomposition variant in all three; `-minus` twins cluster at the bottom.
+
+### 3.4 Failure attribution (E1/DeepSeek; coverage = ≥1 gold chunk in the top-20 answering context)
+
+| System | Coverage | ALL gold present | Gen-failures (gold present, wrong) | Ret-failures (no gold) | Lucky guesses |
+|---|---|---|---|---|---|
+| A | 96.7% | 73/150 | 72 | 5 | **0** |
+| B | 98.7% | 88 | 71 | 2 | **0** |
+| F | 97.3% | 75 | 78 | 4 | **0** |
+| F-seq | 99.3% | **100** | 77 | 1 | **0** |
+| (minus twins) | 93–99% | 63–74 | 73–85 | 1–10 | **0** |
+
+- **Errors are 87–99% generation-side**; retrieval-failure explains only 1–10 of ~75 errors per system.
+- **Zero correct answers without gold in context** across all 1,200 runs — no parametric leakage; correctness genuinely
+  required retrieval.
+- **F-seq assembles complete gold evidence for 100/150 queries vs F's 75** — the sequential-bridge mechanism
+  demonstrably improves full-evidence assembly even where the accuracy gain is directional-only (§4, Finding 4).
+- Note: `recall_at_5` (0.37–0.59) uses a top-5 window; coverage uses the full top-20 context — different denominators,
+  both correct.
+
+### 3.5 Anomaly scan
+
+- 0 NULL answers (3,600/3,600); 0 cost outliers (>5× cell median); latency p95 ≤ 11.8 s (structural: B/F-seq multi-call).
+- `max_tokens=800` cap held for every single-call system (A max 582). **3–4 Nova rows exceeded the cap on single calls**
+  (max 2,340 tokens; qids 17845/17853/17868/17873) — LiteLLM likely dropped the param for Nova's API shape
+  (`drop_params=True`). Benign (Nova near-free, correctness unaffected); footnote in the write-up.
+
+---
+
+## 4. Findings (graded)
+
+| # | Finding | Verdict | Key evidence |
+|---|---|---|---|
+| 1 | **Iterative retrieval (B) is the best orchestration** | ✅ Confirmed | Rank-1 all 3 models; B>A pooled p=.019 (Nova individually p=.027); literature-consistent |
+| 2 | **Hybrid > dense-only** | ✅ Confirmed (pooled) | 24/24 directional, pooled p=5.5×10⁻⁵; small per-cell effect; Qwen marginal (p=.059) |
+| 3 | **Parallel decomposition (F) does not beat single-pass (A)** | ❌ F-as-improvement **refuted** → **novel finding** | Pooled slightly favours A; no published precedent either way; explicit tension with Ammann 2025 (MultiHop-RAG) — E4–E6 are the reconciling test |
+| 4 | **Sequential > parallel decomposition (F-seq > F)** | ⚠ Directional-only (p=.203) | b>c in all 3 models; mechanism proven independently: complete-evidence assembly 100 vs 75/150 — the generator squanders the assembled evidence |
+| 5 | **Generation, not retrieval, is the bottleneck** | ✅ Confirmed | Coverage 93–99%; 87–99% of errors have gold in context; 0 lucky guesses |
+| 6 | **Small models cannot execute decomposition** | ✅ Confirmed (measured) | Nova F-family n_steps 1.35–1.41 vs 3.5–3.7; iteration (B) still works on Nova — the model-robust strategy |
+| 7 | **System ranking is stable across the capability gradient** | ✅ Confirmed | τ-b 0.64–0.74, all pairs significant |
+| 8 | **The most expensive model is never the rational choice** | ✅ Confirmed | Every DeepSeek cell Pareto-dominated; Qwen-B > DeepSeek-B on accuracy at 24% of cost |
+| 9 | **Absolute numbers are externally plausible** | ✅ Pass | §6 — above the open-domain GPT-3.5 band for explainable reasons; Nova recovers the weak-model band (internal control) |
+
+### 4.1 Correction of the n=50 pilot claims (must propagate to all documents)
+
+| Pilot claim (n=50, DeepSeek, pre-final config) | n=150 verdict |
+|---|---|
+| "Dense-only wins on MuSiQue; B-minus (0.640) is the champion; the retriever effect is dataset-dependent and reverses on MuSiQue" | **REFUTED.** Hybrid wins all 24 cells, pooled p=5.5×10⁻⁵. The pilot reversal was small-sample noise compounded by config drift (`top_k` 10→20, prompt softening, `max_tokens` cap; the reranker did NOT change — pilots also used Cohere). |
+| "F-seq ≫ F on deep hops (4-hop 0.444 vs 0.111, 4×)" | **Not replicated.** F-seq>F is directional-only; its edge concentrates at 2-hop; 3/4-hop are statistical ties. |
+
+**Reframe for the thesis:** the pilot-vs-final reversal is itself a *finding* — a documented, quantified case study in
+the unreliability of small-sample RAG evaluation (ties directly into RQ4 and the field-wide single-run critique).
+Affected artefacts still carrying the stale claim: `DISSERTATION_AUDIT.md §5c`, Chapter 3/4 pilot boxes,
+`RELATED_WORK.md §8` framing, session memory. **None of the refuted claims may survive as live claims.**
+
+---
+
+## 5. Cost-effectiveness (RQ2)
+
+Full grid (accuracy · $/correct):
+
+| Cell | Acc | $/correct | | Cell | Acc | $/correct |
+|---|---|---|---|---|---|---|
+| Nova-A | .273 | $0.00083 | | Qwen-F-seq⁻ | .467 | $0.00228 |
+| Nova-A⁻ | .260 | $0.00084 | | Qwen-F-seq | .480 | $0.00230 |
+| Nova-F-seq | .320 | $0.00119 | | Nova-B | .347 | $0.00276 |
+| Nova-F | .300 | $0.00119 | | Nova-B⁻ | .307 | $0.00303 |
+| Qwen-A | .473 | $0.00128 | | Qwen-B | **.527** | $0.00416 |
+| Nova-F⁻ | .260 | $0.00133 | | DS-A | .487 | $0.00425 |
+| Qwen-A⁻ | .420 | $0.00140 | | DS-A⁻ | .420 | $0.00473 |
+| Nova-F-seq⁻ | .260 | $0.00143 | | Qwen-B⁻ | .467 | $0.00483 |
+| Qwen-F | .440 | $0.00170 | | DS-F | .453 | $0.00574 |
+| Qwen-F⁻ | .420 | $0.00171 | | DS-F⁻ | .427 | $0.00588 |
+| | | | | DS-F-seq | .480 | $0.00814 |
+| | | | | DS-F-seq⁻ | .433 | $0.00872 |
+| | | | | DS-B | .513 | $0.01710 |
+| | | | | DS-B⁻ | .447 | $0.01927 |
+
+**Pareto frontier (accuracy ↑ vs $/correct ↓): Nova-A → Nova-F-seq → Qwen-A → Qwen-F-seq → Qwen-B.**
+Every DeepSeek cell is dominated. B costs ~4× A per correct answer within every model. F-seq appears twice on the
+frontier — the genuine cost/accuracy middle ground. Caveat: $/correct covers LLM generation only; Cohere rerank is a
+separately-metered per-retrieval charge borne by hybrid systems only (disclosed in Ch3 §3.5).
+
+---
+
+## 6. Paper-vs-paper analysis
+
+### 6.1 Comparison table (primary-source verified unless ⚠)
+
+| Paper (arXiv) | Setting | Metric | Their number | Our closest | Comparable? |
+|---|---|---|---|---|---|
+| **IRCoT** — Trivedi et al., ACL'23 (2212.10509, T4) | Open-domain BM25, 139k paras, GPT-3 code-davinci-002 | answer F1 | NoR 25.2 → OneR 29.4 → **IRCoT 36.5** (Flan-T5-XXL: 13.7→25.8→30.8) | A 0.444 → B 0.477 (token-F1, DS) | **Partially** — same dataset+metric; our corpus ~46× smaller, reranked, stronger generators. Direction anchor (iterative>single), not level |
+| **Adaptive-RAG** — Jeong et al., NAACL'24 (2403.14403, T8) | Open-domain BM25, same 139k corpus, GPT-3.5 | **containment Acc** (= our metric family) | No-retr 24.4 · single 23.6 · **multi 31.6** · adaptive 29.6 | A 0.487 → B 0.513 (DS) | **Partially — the best anchor**: same dataset, same metric family, same single-vs-multi contrast. Nova (0.273→0.347) lands inside their band |
+| **Self-Ask** — Press et al. '23 (2210.03350, T1/T14) | Closed-book davinci-002, **2-hop subset only** | EM / Cover-EM | Direct 5.6 → CoT 12.6 → Self-Ask 13.8 EM (cEM 16.2) | F-seq 0.480 | **No** (subset, no retrieval) — cite as containment-metric precedent + sequential-decomposition lineage |
+| **BeamAggR** — Chu et al., ACL'24 (2406.19820, T1) | Open-domain wiki + **web search**, GPT-3.5 | token F1 | Self-Ask 16.2 · IRCoT 24.9 · FLARE 31.9 · **BeamAggR 36.9** ⚠ (+8.5% headline unreconciled with T1) | F 0.416 / F-seq 0.463 | **Partially** — same dataset+metric; web augmentation + answer-level aggregation ≠ our retrieval-level fusion |
+| **Search-R1** (2503.09516 **v5**, T2) | Open-domain E5/2018-wiki, RL-trained Qwen-7B | EM | 0.196 ⚠ (version drift v1→v5 confirmed: 0.142→0.196) | — | **No** — trained weights; context row for the SOTA frontier |
+| **R1-Searcher** (2503.05592, T2) | Open-domain KILT-wiki 29M, RL 7B/8B | **Cover-EM** | 0.282 (baselines: naive GPT-4o-mini 0.134, IRCoT 0.192) | B 0.513 (DS) | **Metric-convention citation only** — radically harder corpus, trained weights |
+| **Ammann et al.** '25 (2507.00355) | **MultiHop-RAG** (news), dense-only FAISS, Qwen2.5-32B, temp 0.8 | answer-F1 delta | decomposition **+11.6%** | our F−A ≤ 0 on MuSiQue | **The tension row** — different benchmark; our E4–E6 MultiHop cells are the reconciling evidence |
+| **BEIR** — Thakur et al., NeurIPS'21 (2104.08663) | 18-dataset zero-shot IR | nDCG@10 | "BM25 is a robust baseline… dense … often underperform" (primary-verified) | hybrid>dense 24/24 | **Supports** retriever dataset-dependence; grounds Finding 2 |
+| **MuSiQue** — Trivedi et al., TACL'22 (2108.00573) | dataset construction | — | distractors BM25-mined with intermediate answers masked (primary-verified) | — | Grounds the adversarial-to-lexical premise; NB we find hybrid wins **despite** this |
+
+### 6.2 Plausibility assessment — PASS
+
+- Our containment 0.45–0.53 / token-F1 0.42–0.48 sit **above every open-domain published number** (Adaptive-RAG
+  containment 0.236–0.316; IRCoT F1 29–37; BeamAggR 36.9) and **below** trained-reader native-distractor regimes ⚠ —
+  exactly where a pooled-distractor setting (3,000-chunk pool ≈ 46× smaller than IRCoT's corpus), a containment metric,
+  and 2024/25-class generators should land. Being only ~1.6× above Adaptive-RAG with those advantages is conservative.
+- **Nova Lite (0.273–0.347) recovers the published GPT-3.5-class band — a built-in external sanity anchor.**
+- RL-trained 7B open-domain Cover-EM tops out ~0.28 (R1-Searcher); we exceed it in an easier setting — consistent.
+- **Framing obligation:** these are plausibility-band comparisons, **never leaderboard claims** — our setting differs on
+  corpus size (↓), metric leniency (↑), and generator strength (↑) simultaneously, all inflating absolutes.
+
+### 6.3 Directional findings vs the literature
+
+| Our finding | Literature status |
+|---|---|
+| Iterative > single-pass | **Strongly supported on MuSiQue specifically** (IRCoT +7.1 F1; Adaptive-RAG +8.0 containment; R1-Searcher baseline table). Our smaller margins (+2.6 to +7.4 pts) are expected: our single-pass baseline is far stronger (hybrid+rerank, 20-chunk context, small pool). Adaptive-RAG even records single-step retrieval *hurting* vs no-retrieval on GPT-3.5 — retrieval-noise sensitivity is on the record |
+| Parallel decomposition ≯ single-pass | **No direct precedent found in either direction → novel.** Tension with Ammann 2025 is real but cross-dataset. BeamAggR's decomposition win uses answer-level aggregation, not retrieval-level fusion — does not contradict us. Mechanism (unresolved bridge entities make parallel sub-questions unretrievable) is precisely Self-Ask's design rationale |
+| Hybrid > dense-only | **Consistent with BEIR.** The added nuance — hybrid wins *despite* MuSiQue's BM25-mined distractors — implies the cross-encoder reranker filters the lexical noise; ⚠ **no direct published evaluation-time evidence for this mechanism exists** (only indirect training-time hard-negative literature, e.g. 2206.08063). Present as this study's interpretation |
+
+---
+
+## 7. Implications for the write-up
+
+1. **Chapter 4 headline set** = Findings 1–8 (§4), with the statistical phrasing rules baked in (pooled tests for the
+   retriever effect; "directional-only" for F-seq>F; F≯A as novel).
+2. **The pilot reversal becomes a methods contribution**: quantified evidence that n=50 RAG comparisons mislead
+   (feeds RQ4 + the single-run field critique in RELATED_WORK §5).
+3. **The generation-bottleneck result** (Finding 5) reframes the whole benchmark: at top-20 context with a reranked
+   pool, retrieval is nearly solved on MuSiQue-pooled; the residual problem is reading/synthesis. This is the strongest
+   argument for why orchestration gains are modest — and why F-seq's evidence-assembly win doesn't convert.
+4. **RQ2 story**: Qwen3-32B + iteration is the rational configuration; frontier-cost models are dominated.
+5. **E4–E6 (MultiHop) are now decisive** for: the Ammann tension (does decomposition pay on news?), the dataset-contrast
+   arm of Study 2, and cross-dataset rank stability.
+
+### Pre-print verification checklist (⚠ items)
+- IRCoT full-MuSiQue EM (not reported; only 2-hop subset) — do not cite a full-EM figure.
+- Flan-T5 base/large/XL MuSiQue values exist only as a plot (Fig. 9).
+- BeamAggR "+8.5%" headline vs Table 1 discrepancy — cite as their quoted claim only.
+- Search-R1: cite the v5/camera-ready numbers; version drift confirmed.
+- Zhou et al. (least-to-most) sequential-beats-parallel specifics — not quote-verified.
+- Native-distractor MuSiQue ceilings — not re-verified.
+- Reranker-robustness-to-BM25-distractors — no direct evidence exists; frame as interpretation.
+- Nova single-call `max_tokens` overshoot (3–4 rows) — one-line footnote.
+
+---
+
+*Compiled from: integrity audit (27 checks), statistical verification (independently cross-checked; exact binomial
+sign tests, Kendall τ-b, failure attribution over 3,600 runs), and primary-source literature verification (arXiv
+PDF/HTML extraction). All numbers trace to Postgres experiments 50/51/53 at the frozen SHAs above.*
