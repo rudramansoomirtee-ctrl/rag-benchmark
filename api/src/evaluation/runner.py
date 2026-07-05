@@ -128,15 +128,48 @@ def run_experiment(
     stratify: bool = True,
     min_gold_articles: int | None = None,
     query_ids: list[int] | None = None,
+    resume_experiment_id: int | None = None,
 ) -> int:
     """Run all (system, dataset, query) combinations and persist to `runs`.
 
     Returns the experiment_id.
+
+    `resume_experiment_id`: resume an EXISTING experiment instead of creating a
+    new row. Without this, re-running `run-experiment --name X ...` creates a
+    fresh Experiment (new id) and starts from scratch — the UNIQUE(experiment_id,
+    system, query_id) constraint only dedupes WITHIN one experiment_id, so a
+    second invocation under the same --name does not resume the first; it
+    silently duplicates work (found in production: two concurrent processes
+    both named "final-musique-qwen" ran side by side under different ids).
+    Passing the existing id here reuses its already-recorded
+    config_json.selection.query_ids (the exact reproducible sample) and inserts
+    into the SAME experiment_id, so ON CONFLICT DO NOTHING correctly skips
+    completed (system, query) pairs and only runs what's missing.
     """
     console = Console()
     session = get_session()
 
     try:
+        if resume_experiment_id is not None:
+            exp = session.get(Experiment, resume_experiment_id)
+            if exp is None:
+                raise ValueError(f"no experiment with id={resume_experiment_id}")
+            saved_ids = (exp.config_json.get("selection") or {}).get("query_ids")
+            if not saved_ids:
+                raise ValueError(
+                    f"experiment {resume_experiment_id} has no recorded selection.query_ids to resume from"
+                )
+            queries = session.scalars(
+                select(Query).where(Query.id.in_(saved_ids)).order_by(Query.id)
+            ).all()
+            exp_id = exp.id
+            console.print(
+                f"[bold]Resuming experiment[/bold] [cyan]{name}[/cyan] (id={exp_id}) — "
+                f"{len(queries)} queries × {len(systems)} systems (only missing pairs will run)"
+            )
+            _run_matrix(session, console, exp_id, name, queries, systems)
+            return exp_id
+
         # Load queries, then select. --sample = seeded (optionally stratified by
         # question_type) random draw → a defensible subset. --limit = first-N, a
         # quick smoke test only (NOT random). --sample wins if both are given.
@@ -220,40 +253,59 @@ def run_experiment(
         session.refresh(exp)
         exp_id = exp.id
 
-        console.print(
-            f"[bold]Experiment[/bold] [cyan]{name}[/cyan] (id={exp_id}) — "
-            f"{len(queries)} queries × {len(systems)} systems = {len(queries) * len(systems)} runs"
-        )
         logger.info(
             "experiment '%s' id=%s: %d queries × %d systems (%s); selection=%s",
             name, exp_id, len(queries), len(systems), ",".join(systems), selection.get("method"),
         )
-
-        # Instantiate systems once
-        system_instances: dict[str, System] = {s: SYSTEM_REGISTRY[s]() for s in systems}
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("{task.completed}/{task.total}"),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
-            for sys_name, system in system_instances.items():
-                logger.info("system %s: %d queries", sys_name, len(queries))
-                task = progress.add_task(f"System {sys_name}", total=len(queries))
-                for q in queries:
-                    _run_one(session, exp_id, sys_name, system, q)
-                    progress.advance(task)
-
-        session.query(Experiment).filter_by(id=exp_id).update(
-            {"finished_at": __import__("sqlalchemy").func.now()}
-        )
-        session.commit()
+        _run_matrix(session, console, exp_id, name, queries, systems)
         return exp_id
     finally:
         session.close()
+
+
+def _run_matrix(session, console: Console, exp_id: int, name: str, queries: list[Query], systems: list[str]) -> None:
+    """Instantiate each system once and run it over every query, persisting as it
+    goes. Shared by fresh runs and `resume_experiment_id` resumes.
+
+    Skips already-persisted (system, query) pairs BEFORE calling system.answer() —
+    load the set of done query_ids per system up front, rather than relying on
+    the INSERT's ON CONFLICT DO NOTHING to dedupe post-hoc. The conflict-only
+    approach still pays for the LLM call and then discards the result, which
+    silently re-spends real money on every resume of an already-completed pair
+    (found in production: a duplicate/leaked process would have re-billed
+    ~850 already-answered queries just to throw the results away).
+    """
+    console.print(
+        f"[bold]Experiment[/bold] [cyan]{name}[/cyan] (id={exp_id}) — "
+        f"{len(queries)} queries × {len(systems)} systems = {len(queries) * len(systems)} runs"
+    )
+    system_instances: dict[str, System] = {s: SYSTEM_REGISTRY[s]() for s in systems}
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        for sys_name, system in system_instances.items():
+            done_ids = set(session.scalars(
+                select(Run.query_id).where(Run.experiment_id == exp_id, Run.system == sys_name)
+            ).all())
+            todo = [q for q in queries if q.id not in done_ids]
+            logger.info("system %s: %d queries (%d already done, %d to run)",
+                        sys_name, len(queries), len(done_ids), len(todo))
+            task = progress.add_task(f"System {sys_name}", total=len(queries))
+            progress.advance(task, len(done_ids))
+            for q in todo:
+                _run_one(session, exp_id, sys_name, system, q)
+                progress.advance(task)
+
+    session.query(Experiment).filter_by(id=exp_id).update(
+        {"finished_at": __import__("sqlalchemy").func.now()}
+    )
+    session.commit()
 
 
 def _run_one(session, exp_id: int, sys_name: str, system: System, q: Query) -> None:

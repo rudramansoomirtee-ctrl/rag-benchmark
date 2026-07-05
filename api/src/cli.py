@@ -76,12 +76,15 @@ def run_experiment(
     stratify: bool = typer.Option(True, "--stratify/--no-stratify", help="Stratify --sample by question_type."),
     min_gold_articles: int = typer.Option(None, "--min-gold-articles", help="Hard subset: keep only queries needing >= N gold articles (hop-count proxy; excludes null queries)."),
     query_ids: str = typer.Option(None, "--query-ids", help="Comma-separated query IDs to run (overrides --sample/--limit; e.g. re-testing failed queries)."),
+    resume_id: int = typer.Option(None, "--resume-id", help="Resume an EXISTING experiment id instead of creating a new one. Reuses its recorded query selection; only missing (system, query) pairs are run — no re-billing of completed ones. Use this (not a bare re-run with the same --name) after an interrupted run: re-running --name alone creates a NEW experiment id and starts over."),
 ):
     """Run the chosen systems over the eval queries. Resumable on failure.
 
     --limit 20 is the quick smoke test (first 20 by id). --sample 500 --seed 42 is
     the defensible subset (seeded, stratified) whose exact query IDs are recorded
-    in the experiment config for reproducibility.
+    in the experiment config for reproducibility. To resume an interrupted run,
+    use --resume-id <id> (find it via the experiment name) rather than re-running
+    with the same --name, which would create a duplicate experiment from scratch.
     """
     from src.evaluation.runner import run_experiment as _run
     exp_id = _run(
@@ -95,6 +98,7 @@ def run_experiment(
         stratify=stratify,
         min_gold_articles=min_gold_articles,
         query_ids=[int(x) for x in query_ids.split(",")] if query_ids else None,
+        resume_experiment_id=resume_id,
     )
     console.print(f"[green]experiment finished[/green] id={exp_id}")
 
