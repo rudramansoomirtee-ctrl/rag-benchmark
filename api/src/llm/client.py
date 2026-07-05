@@ -10,7 +10,14 @@ from src.config import settings
 
 
 def generate(messages: list[dict], **overrides) -> dict:
-    """Call the configured LLM. Returns content, token counts, and cost."""
+    """Call the configured LLM. Returns content, token counts, and cost.
+
+    `max_tokens` defaults to `settings.max_tokens` — a hard ceiling that bounds
+    the cost/latency blast radius of a generation degeneracy (observed: DeepSeek-V3
+    occasionally spirals into repeating "[chunk-N][chunk-N+1]..." indefinitely
+    after already stating the answer — see config.py). Callers can still override.
+    """
+    overrides.setdefault("max_tokens", settings.max_tokens)
     response = completion(
         model=settings.litellm_model,
         messages=messages,

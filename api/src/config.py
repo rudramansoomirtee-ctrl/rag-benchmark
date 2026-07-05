@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     # generation + strong judging. Falls back to litellm_model when unset.
     judge_model: str | None = None
     aws_region: str = "eu-west-2"
+    # Hard ceiling on generate() output length. Discovered via gate testing
+    # (pre-final-matrix smoke test): with no cap, DeepSeek-V3 occasionally enters a
+    # citation-repetition degeneracy on the ANSWER_SYSTEM_PROMPT's "cite chunk IDs"
+    # instruction — having correctly stated the answer in sentence 1, it spirals
+    # into "[chunk-N][chunk-N+1]..." indefinitely (observed: 1500+ sequential
+    # citations, ~8200 tokens, 45s latency) until hitting the provider's default
+    # max output. Normal correct answers here are 70-210 tokens; 800 gives ~4x
+    # headroom while bounding the worst case to ~1/10th the observed blowup.
+    max_tokens: int = 800
 
     # Retrieval
     embedding_model: str = "BAAI/llm-embedder"
