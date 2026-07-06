@@ -19,6 +19,36 @@ incl. BM25-mined hard distractors, pooled into one 3,000-chunk index). Sample: 1
 
 ---
 
+## Executive summary
+
+**Verdict: the MuSiQue arm is clean, verified, and internally consistent — findings are correct with the phrasing
+qualified below.** Data integrity passes all 7 checks; every reported number traces to the raw runs.
+
+**What holds (confirmed):** (1) iterative retrieval **B is the best orchestration** — rank-1 in all 3 models, B>A
+pooled p=.019; (2) **hybrid > dense-only** — directional in all 24 cells, pooled p=5.5×10⁻⁵ (small per-cell effect,
+so report pooled, not per-cell); (5) **generation, not retrieval, is the bottleneck** — gold is in context 93–99% of
+the time, 87–99% of errors occur *with* the answer present, zero lucky guesses; (7) **rankings are stable** across the
+capability gradient (Kendall τ 0.64–0.74); (8) **the expensive model is never rational** — every DeepSeek cell is
+Pareto-dominated, Qwen-B beats DeepSeek-B on accuracy at 24% of cost; (10) **the agent knows when it's done** —
+self-terminated answers are 20–61 pts more accurate than budget-forced ones, which (§7.8) yields a free
+abstention policy (+17–51 pts selective accuracy; Qwen the deployable sweet spot); (12) **iteration is depth-adaptive**.
+
+**What is weaker than the pilots suggested:** (3) **parallel decomposition F does NOT beat single-pass A** — refuted as
+an improvement; a *novel* result, in tension with Ammann 2025 (different dataset — MultiHop is the reconciling test);
+(4) **F-seq > F is directional-only** (p=.203), though its bridge mechanism is real (complete-gold assembly +15 pts on
+deep hops) — the generator squanders it (§7.9 shows why: accuracy falls 26 pts as needed evidence sits deeper in
+context). (11) compensatory search is directional (significant only on Qwen).
+
+**The correction that must propagate:** the n=50 pilot's "dense wins MuSiQue / B-minus champion" headline is **refuted**
+at n=150 — reframe it as a *methods finding* about small-sample RAG unreliability (§4.1; feeds RQ4). Stale claims still
+live in DISSERTATION_AUDIT §5c, Chapter 3/4 pilot boxes, RELATED_WORK §8.
+
+**Status:** MuSiQue complete (E1–E3). MultiHop (E4–E6) not yet run — required for the Study-2 dataset contrast and the
+Ammann reconciliation. Numbers are externally plausible (above the open-domain GPT-3.5 band for explainable reasons;
+Nova recovers the published weak-model band — an internal control). See §8 for the write-up mapping and ⚠ cite-checks.
+
+---
+
 ## 1. Data integrity audit — PASS on all seven checks
 
 | # | Check | Result | Evidence |
@@ -365,16 +395,25 @@ directly.
 
 ## 8. Implications for the write-up
 
-1. **Chapter 4 headline set** = Findings 1–8 (§4), with the statistical phrasing rules baked in (pooled tests for the
-   retriever effect; "directional-only" for F-seq>F; F≯A as novel).
-2. **The pilot reversal becomes a methods contribution**: quantified evidence that n=50 RAG comparisons mislead
-   (feeds RQ4 + the single-run field critique in RELATED_WORK §5).
+1. **Chapter 4 headline set** = Findings 1–12 (§4) plus the two behavioural sub-studies (§7.8 abstention, §7.9 position),
+   with the statistical phrasing rules baked in (pooled tests for the retriever effect; "directional-only" for F-seq>F
+   and compensatory search; F≯A framed as novel-with-mechanistic-support).
+2. **The pilot reversal becomes a methods contribution** (§4.1): quantified evidence that n=50 RAG comparisons mislead
+   (feeds RQ4 + the single-run field critique in RELATED_WORK §5). Purge the refuted claim from DISSERTATION_AUDIT §5c,
+   the Ch3/Ch4 pilot boxes, and RELATED_WORK §8 before submission.
 3. **The generation-bottleneck result** (Finding 5) reframes the whole benchmark: at top-20 context with a reranked
-   pool, retrieval is nearly solved on MuSiQue-pooled; the residual problem is reading/synthesis. This is the strongest
-   argument for why orchestration gains are modest — and why F-seq's evidence-assembly win doesn't convert.
-4. **RQ2 story**: Qwen3-32B + iteration is the rational configuration; frontier-cost models are dominated.
-5. **E4–E6 (MultiHop) are now decisive** for: the Ammann tension (does decomposition pay on news?), the dataset-contrast
-   arm of Study 2, and cross-dataset rank stability.
+   pool, retrieval is nearly solved on MuSiQue-pooled; the residual problem is reading/synthesis. This unifies why
+   orchestration gains are modest, why F-seq's evidence-assembly win doesn't convert, and — via §7.9 — *where* it fails
+   (deep-in-context evidence). Present §5, §7.9, and Finding 4's non-conversion as one chained argument.
+4. **The agentic-behaviour arc** (§7 + §7.8): the agent's free self-termination signal is a valid confidence estimator,
+   exploitable as a zero-cost selective-QA policy — a self-contained, deployable, novel contribution. Pair it with the
+   honest escalate-to-A negative (budget exhaustion = intrinsic query difficulty).
+5. **RQ2 story**: Qwen3-32B + iteration is the rational configuration; frontier-cost models are dominated (§5).
+6. **E4–E6 (MultiHop) remain decisive** for: the Ammann tension (does decomposition pay on news?), the dataset-contrast
+   arm of Study 2, and cross-dataset rank stability. Everything above is analysis of data already in hand; MultiHop is
+   the one outstanding *run*.
+7. **Optional causal backfill** (~$0.50, held in reserve): the randomized-position oracle run would convert §5/§7.9 from
+   correlational to causal and give a Tang & Yang-comparable gold-evidence ceiling — only if an examiner presses.
 
 ### Pre-print verification checklist (⚠ items)
 - IRCoT full-MuSiQue EM (not reported; only 2-hop subset) — do not cite a full-EM figure.
