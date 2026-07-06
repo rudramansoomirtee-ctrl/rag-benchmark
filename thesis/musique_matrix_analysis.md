@@ -151,6 +151,13 @@ B is rank-1 in all three models; F-seq is the best decomposition variant in all 
 | 7 | **System ranking is stable across the capability gradient** | ✅ Confirmed | τ-b 0.64–0.74, all pairs significant |
 | 8 | **The most expensive model is never the rational choice** | ✅ Confirmed | Every DeepSeek cell Pareto-dominated; Qwen-B > DeepSeek-B on accuracy at 24% of cost |
 | 9 | **Absolute numbers are externally plausible** | ✅ Pass | §6 — above the open-domain GPT-3.5 band for explainable reasons; Nova recovers the weak-model band (internal control) |
+| 10 | **The agent knows when it's done** | ✅ Confirmed (behavioural) | §7 — early-stop accuracy exceeds forced-stop accuracy in all 6 B cells by 20–61 pts; hitting the step budget is a hard-query signal |
+| 11 | **Compensatory search under a weaker retriever** | ⚠ Directional (sig. on Qwen) | §7.2 — B-minus takes strictly more steps than B ~2–2.5× as often as fewer (Qwen p=.0013; DS/Nova p≈.06, tie-limited) |
+| 12 | **Depth-adaptive iteration** | ✅ Confirmed | §7.3 — B's mean steps rise monotonically 2-hop→4-hop in all 3 models (+0.83 to +1.53) |
+
+*Nuance to Finding 4:* on 3/4-hop queries specifically (n=72, DeepSeek), F-seq's complete-gold advantage holds
+(52.8% vs F's 37.5%) but head-to-head answer wins do **not** (F-seq 9 vs F 11) — F-seq's overall directional edge
+comes mostly from 2-hop; sequential bridge errors (UNKNOWN substitutions) partly offset the better evidence pool.
 
 ### 4.1 Correction of the n=50 pilot claims (must propagate to all documents)
 
@@ -231,7 +238,76 @@ separately-metered per-retrieval charge borne by hybrid systems only (disclosed 
 
 ---
 
-## 7. Implications for the write-up
+## 7. Agent behaviour analysis (the qualitative/behavioural arm)
+
+*How the agentic systems behave, from the persisted trajectories (n_steps, evidence sets, answers) — the analysis
+promised for the "study its behaviour" objective. Per-step route texts live in Phoenix traces; everything below is
+recomputed from Postgres.*
+
+### 7.1 System B termination behaviour — the agent knows when it's done
+
+| Exp | System | Early-stop rate (n<5) | Early-stop acc | Forced-stop rate (n=5) | Forced-stop acc |
+|---|---|---|---|---|---|
+| DeepSeek | B | 20.7% | **0.839** | 79.3% | 0.429 |
+| DeepSeek | B-minus | 16.0% | **0.958** | 84.0% | 0.349 |
+| Qwen3 | B | 56.7% | **0.706** | 43.3% | 0.292 |
+| Qwen3 | B-minus | 43.3% | **0.646** | 56.7% | 0.329 |
+| Nova | B | 34.7% | **0.577** | 65.3% | 0.224 |
+| Nova | B-minus | 29.3% | **0.545** | 70.7% | 0.208 |
+
+Early self-termination (the route call choosing ANSWER) beats budget-forced termination by **20–61 accuracy points in
+all six cells** — the ANSWER decision is a genuine confidence signal, and n_steps=5 is a hard-query flag, not a
+slow-success flag. Forced-stop dominates on DeepSeek/Nova (65–84% of runs); only Qwen3 self-terminates the majority
+of the time — its route model is the most decisive. Deployable heuristic: *budget exhaustion should trigger
+abstention/escalation, not a confident answer.*
+
+### 7.2 Compensatory search — the agent searches longer over a weaker retriever
+
+Per-query paired comparison of steps (B-minus vs B): strictly-more 14:5 (DeepSeek, p=.064), **41:16 (Qwen, p=.0013)**,
+24:12 (Nova, p=.065). Direction consistent everywhere (~2–2.5:1); most pairs tie at the 5-step ceiling, limiting power
+outside Qwen. The same agent logic, given a weaker retriever, behaviourally compensates by iterating more.
+
+### 7.3 Depth-adaptive iteration
+
+Mean B steps by hop count: DeepSeek 4.06→4.56→4.89; Qwen 2.69→3.87→4.22; Nova 3.44→4.36→4.70 —
+**monotonic in all three models**. The agent takes more retrieve→route cycles as question depth grows.
+
+### 7.4 Evidence accumulation — a symptom of difficulty, not a cure
+
+B roughly doubles its evidence pool through iteration (all_retrieved ≈ 35–40 unique chunks vs the final 20-slot
+context); F/F-seq accumulate ~41–50 on DeepSeek/Qwen but collapse to ~23–24 on Nova (the decompose-failure footprint).
+Critically, B's **incorrect** runs accumulate *more* evidence than its correct ones (42.9 vs 35.7, DeepSeek) —
+accumulation and failure share the same cause (hard queries force more iterations); more searching marks difficulty
+rather than producing success.
+
+### 7.5 Decomposition behaviour — failure quantified per query
+
+Empty/failed decomposition (n_steps=1): DeepSeek 3.3–6.0%, Qwen 0.0–0.7%, **Nova 84.7–87.3%** — the per-query
+quantification of the Nova collapse (Finding 6). The decomposer never emits exactly one sub-question (0 or 2–4).
+F-seq accuracy peaks at 2 sub-questions and declines at 3–4 — like B's forced-stop, deeper decomposition marks harder
+queries more than it fixes them.
+
+### 7.6 Case studies (DeepSeek, hybrid)
+
+Iteration wins (B✓ A✗): **18**; reverse (A✓ B✗): **14** → net +4 for B (matches the paired test, §3.2).
+- **id 17748** — *"What university did the author of 1967: The Last Good Year attend?"* A identified Pierre Berton but
+  lacked the university chunk → refused. B (5 steps) retrieved the missing bridge fact → "University of British
+  Columbia" ✓.
+- **id 17777** — *"In which county is Mark Dismore's birthplace?"* B solved it in **2 steps** (early-stop win):
+  retrieved Greenfield → re-queried → Hancock County ✓ while A refused. A clean recognize-gap→re-query→stop trajectory.
+- **id 17747** (budget-exhausted failure) — *"Who is the spouse of the actor of Ethan in A Dog's Purpose?"* B locked
+  onto the wrong Ethan-actor (KJ Apa, not Dennis Quaid) at step 1 and five iterations never corrected the initial
+  entity-resolution error → refused; gold Meg Ryan. Iteration cannot fix a wrong first anchor.
+- Honesty: B also *introduces* 14 new failures (query drift / needless reformulation of directly-answerable questions).
+
+### 7.7 F-seq mechanism on deep hops (3/4-hop, n=72, DeepSeek)
+
+Complete-gold assembly: **F-seq 52.8% vs F 37.5%** (+15 pts) — sequential bridge-resolution demonstrably improves
+full-evidence retrieval on deep questions. But head-to-head answers: F-seq 9 wins vs F 11 — the retrieval-mechanism
+advantage does not convert on deep hops (early bridge errors / UNKNOWN substitutions narrow the final prompt; F's
+brute-force breadth sometimes wins anyway). F-seq's overall directional edge over F is driven by 2-hop questions.
+
+## 8. Implications for the write-up
 
 1. **Chapter 4 headline set** = Findings 1–8 (§4), with the statistical phrasing rules baked in (pooled tests for the
    retriever effect; "directional-only" for F-seq>F; F≯A as novel).
