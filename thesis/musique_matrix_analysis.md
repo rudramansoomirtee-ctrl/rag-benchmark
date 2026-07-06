@@ -334,6 +334,35 @@ This confirms the interpretation of §7.1: **budget exhaustion flags queries tha
 every orchestration — not B-specific failures; there is nothing cheaper to escalate *down* to. The right response to
 the signal is abstention (or escalation *up* to a stronger model — untested, future work).
 
+### 7.9 Position sensitivity — where the generation bottleneck bites ("lost-in-the-context")
+
+*Pure SQL over stored contexts (JSONB arrays preserve rank order); pooled across all 8 systems × 3 models.*
+
+**Accuracy by rank of the DEEPEST needed gold chunk, on complete-evidence runs only** (all gold present in the
+top-20 context — so retrieval is fully controlled; n=1,791):
+
+| Deepest gold rank | n | Accuracy |
+|---|---|---|
+| 1–5 | 726 | **0.727** |
+| 6–10 | 534 | 0.582 |
+| 11–15 | 307 | 0.472 |
+| 16–20 | 224 | 0.469 |
+
+Even with **every** required gold chunk in the context, accuracy falls **26 points** as the deepest needed chunk moves
+from the top-5 into the bottom half of the 20-chunk window. Controlled for hop depth (2-hop only): 0.742 → 0.562 →
+0.424 (16–20 bucket bounces to 0.563 at n=80 — noisy tail). Correct runs hold their deepest gold at mean rank 7.05 vs
+9.49 for incorrect. First-gold rank shows the same pattern (0.436 top-5 vs ~0.21–0.26 below).
+
+**Interpretation — the mechanism behind Finding 5:** generation failures concentrate when needed evidence sits deep in
+the context, consistent with the *primacy* component of position-sensitivity findings (Liu et al. 2023,
+"Lost in the Middle", arXiv:2307.03172 ⚠ cite-check: their canonical result is U-shaped over *forced* positions; ours
+is an observational, monotone-declining variant over *ranker-assigned* positions). **Causal caveat:** rank is assigned
+by the reranker/RRF, so a deep-ranked gold chunk also marks a harder query–evidence match — position and difficulty are
+partially confounded. The randomized-position oracle run (gold chunks injected at controlled positions) is the causal
+follow-up. Even as a correlation, the practical lever is real: anything that lifts gold higher in the final context
+(better fusion weighting, smaller-but-cleaner contexts, position-aware ordering) attacks the dominant failure mode
+directly.
+
 ## 8. Implications for the write-up
 
 1. **Chapter 4 headline set** = Findings 1–8 (§4), with the statistical phrasing rules baked in (pooled tests for the
