@@ -307,6 +307,33 @@ full-evidence retrieval on deep questions. But head-to-head answers: F-seq 9 win
 advantage does not convert on deep hops (early bridge errors / UNKNOWN substitutions narrow the final prompt; F's
 brute-force breadth sometimes wins anyway). F-seq's overall directional edge over F is driven by 2-hop questions.
 
+### 7.8 Post-hoc abstention policy — exploiting the self-termination signal (zero new LLM calls)
+
+Policy: *answer only when B self-terminates (n_steps<5); abstain when forced to the budget.* Re-scored from stored runs.
+
+| Exp | System | Coverage (answers) | Selective acc | Baseline acc | Correct kept | Wrong answers avoided |
+|---|---|---|---|---|---|---|
+| DeepSeek | B | 31/150 (21%) | **0.839** | 0.513 | 26/77 | 68 (45% of all queries) |
+| DeepSeek | B-minus | 24/150 (16%) | **0.958** | 0.447 | 23/67 | 82 |
+| **Qwen3** | **B** | **85/150 (57%)** | **0.706** | 0.527 | **60/79 (76%)** | **46** |
+| Qwen3 | B-minus | 65/150 (43%) | 0.646 | 0.467 | 42/70 | 57 |
+| Nova | B | 52/150 (35%) | 0.577 | 0.347 | 30/52 | 76 |
+| Nova | B-minus | 44/150 (29%) | 0.545 | 0.307 | 24/46 | 84 |
+
+Selective accuracy rises **+17 to +51 points** over baseline in every cell. The trade is coverage: DeepSeek's
+indecisive router abstains on 79% of queries (precision 0.84 but keeps only a third of its correct answers), while
+**Qwen3 is the sweet spot** — it answers 57% of queries at 0.706 precision, keeping 76% of its correct answers while
+filtering out 65% of its wrong ones (errors among given answers drop 71→25). For precision-critical deployments,
+*iterative agent + abstain-on-budget-exhaustion* is a genuinely usable selective-QA policy, obtained for free from a
+signal the agent already emits.
+
+**Escalation-to-A refuted (honest negative).** The alternative policy — answer with the cheap single-pass A whenever B
+is forced — is *worse than plain B everywhere* (DeepSeek 0.487 vs 0.513; Qwen 0.520 vs 0.527; Nova 0.320 vs 0.347),
+because A performs even worse than forced-B on that subset (0.395 / 0.277 / 0.184 vs B's 0.429 / 0.292 / 0.224).
+This confirms the interpretation of §7.1: **budget exhaustion flags queries that are intrinsically hard** — hard for
+every orchestration — not B-specific failures; there is nothing cheaper to escalate *down* to. The right response to
+the signal is abstention (or escalation *up* to a stronger model — untested, future work).
+
 ## 8. Implications for the write-up
 
 1. **Chapter 4 headline set** = Findings 1–8 (§4), with the statistical phrasing rules baked in (pooled tests for the
