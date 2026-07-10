@@ -1,263 +1,252 @@
 # Chapter 4 — Results
 
-> **Status: MuSiQue populated (verified n=150); MultiHop pending.** The MuSiQue arm of the final matrix
-> (E1–E3: DeepSeek-V3, Qwen3-32B, Nova Lite; 3,600 runs; 0 failures) is complete, verified by three
-> independent audits, and its numbers are filled in below. The MultiHop-RAG arm (E4–E6) has **not** yet
-> run — cells that need it are marked `[MultiHop — E4–E6 pending]` and are **not** invented. Full
-> statistical backing (paired tests, effect sizes, behavioural sub-studies) lives in
-> `thesis/musique_matrix_analysis.md`; this chapter reports the headline numbers and the interpretation.
->
-> **Voice note:** this is a data-backed draft skeleton — the analysis paragraphs state the findings and
-> the required framing, but must be expanded into your own prose before submission. Resolve remaining
-> `[CONFIRM]`/`[INSERT]` markers (MultiHop N, hardware) as they become available.
-
-**Marking hook: analysis of findings is the highest-weighted criterion (/30).** Every section maps to one
-research question and cites the verified evidence (experiment ids 50/51/53; frozen SHA `12f2a49`).
+> **Status: complete prose draft for your review — not a hand-in.** All MuSiQue numbers are the
+> verified final-matrix values (n=150 per cell, 3,600 runs, zero failures; every figure spot-checked
+> against the raw data). The MultiHop-RAG arm has not yet been run: §4.8 is a stub, and the two
+> sentences flagged `[MultiHop]` must be completed or the scope narrowed before submission. Before
+> submitting: rewrite in your own voice; move the statistical machinery references to the appendix;
+> renumber tables/figures per institutional style.
 
 ---
 
-## 4.1 Overview of the executed evaluation
+## 4.1 The executed evaluation
 
-The evaluation comprises **two studies over one frozen substrate**, reported separately because they
-manipulate different variables (Study 1 = orchestration, retriever fixed; Study 2 = retriever, the full
-4×2 factorial). **System nomenclature** (codes in tables, full names in prose — Table 3.1): **A** =
-Single-pass RAG · **B** = Iterative RAG · **F** = Parallel decomposition · **F-seq** = Sequential
-decomposition (Self-Ask); each has a dense-kNN-only twin **A-/B-/F-/F-seq-minus**.
+The evaluation reported here executed the full 4×2 factorial of Chapter 3 — four orchestration
+strategies, each with its dense-only twin — under three language models on the MuSiQue benchmark:
+3,600 runs in total (8 systems × 150 questions × 3 models), with no failed runs. All cells share the
+frozen configuration described in §3.8: one commit, one index build, one seeded stratified sample
+(78 two-hop, 45 three-hop, 27 four-hop questions; seed 42), identical query identifiers in every
+cell, the Cohere reranker, and a uniform twenty-passage answer budget. Total generation cost for the
+matrix was approximately $7. An independent integrity audit confirmed sample identity across all
+cells, configuration constancy, completeness, and the absence of scoring anomalies; the audit and the
+full statistical tables are reproduced in Appendix `[X]`. `[MultiHop: the corresponding paragraph for
+the news-corpus arm is added when E4–E6 complete.]`
 
-**Provenance (MuSiQue arm, confirmed from `experiments.config_json`):**
+Because every system answered the same questions, all comparisons in this chapter are paired, and
+significance statements use exact paired sign tests unless stated otherwise. Two phrasing conventions
+are applied throughout, following the statistical results rather than preceding them: effects that
+are consistent in direction but individually underpowered are described as *directional*, and pooled
+tests are reported as pooled, never as per-cell findings.
 
-| Field | Value |
-|---|---|
-| Git SHA | `12f2a49` (E3 `ec457dc`, verified inert — resume-logic only) |
-| Models | Qwen3-32B · DeepSeek-V3 · Nova Lite (AWS Bedrock, LiteLLM SDK, temp 0) |
-| Dataset / N / seed | MuSiQue **150** (78 2-hop / 45 3-hop / 27 4-hop), seed 42; MultiHop-RAG `[E4–E6 pending]` |
-| Reranker | Cohere Rerank 3.5 (`cohere.rerank-v3-5:0`, eu-central-1) |
-| Answer-context budget | 20 chunks, uniform (`top_k=20` for A/A-minus; `fused_answer_top_k=20` for the rest) |
-| Identical `query_ids` across all cells | **confirmed** (integrity audit, all 24 cells) |
-| Runs / failures | 3,600 / **0** |
+## 4.2 Accuracy by orchestration strategy (RQ1)
 
-**Model panel (RQ3/RQ4 scope).** Heterogeneous cost-efficient models spanning a capability gradient —
-Nova Lite (weak) < Qwen3-32B (mid) < DeepSeek-V3 (strong-but-cheap) — not a frontier panel; cross-model
-claims are framed accordingly (§3.5). One panel property is itself a result: **Nova Lite cannot execute
-the decomposition systems** — its structured-output decoder parse-fails on ~85% of queries, so F/F-seq
-degrade to naive retrieval (measured n_steps 1.4 vs 3.5–3.7 on the other models). Nova's F-family cells
-are reported as this degradation (≈ Nova A), not as decomposition, and constitute the robustness finding
-(§4.6).
-
----
-
-## 4.2 Study 1 — Accuracy by orchestration strategy — RQ1
-
-*Evidence: `compute-metrics`, `metrics-by-type` (exp 50/51/53). Metric: alias-aware containment accuracy.*
-
-**Table 4.1 — Containment accuracy, 8 systems × 3 models, MuSiQue (n=150).** (Nova F-family marked † =
-decompose parse-fails → degraded to ≈ Nova A; §4.6.)
+Table 4.1 reports containment accuracy for all eight systems under each model.
 
 | System | DeepSeek-V3 | Qwen3-32B | Nova Lite |
 |---|---|---|---|
-| A (naive) | 0.487 | 0.473 | 0.273 |
+| A (single-pass) | 0.487 | 0.473 | 0.273 |
 | A-minus | 0.420 | 0.420 | 0.260 |
-| **B (iterative)** | **0.513** | **0.527** | **0.347** |
+| B (iterative) | 0.513 | 0.527 | 0.347 |
 | B-minus | 0.447 | 0.467 | 0.307 |
 | F (parallel decomp.) | 0.453 | 0.440 | 0.300 † |
 | F-minus | 0.427 | 0.420 | 0.260 † |
 | F-seq (sequential decomp.) | 0.480 | 0.480 | 0.320 † |
 | F-seq-minus | 0.433 | 0.467 | 0.260 † |
 
-*(MultiHop-RAG equivalent: `[E4–E6 pending]`.)*
+*Table 4.1 — containment accuracy, MuSiQue, n=150 per cell. † Nova Lite's decomposition systems
+degraded to single-retrieval behaviour (§4.6) and approximate its System A rather than genuine
+decomposition.*
 
-**Table 4.2 — Accuracy by hop count, MuSiQue, DeepSeek-V3** (2-hop n=78 / 3-hop n=45 / 4-hop n=27):
+Three results emerge.
 
-| System | 2-hop | 3-hop | 4-hop | Overall |
-|---|---|---|---|---|
-| A | 0.538 | 0.444 | 0.407 | 0.487 |
-| B | 0.577 | 0.533 | 0.296 | 0.513 |
-| F | 0.500 | 0.444 | 0.333 | 0.453 |
-| F-seq | 0.577 | 0.422 | 0.296 | 0.480 |
+Iterative retrieval is the strongest orchestration under every model. B ranks first in all three
+columns, and the improvement over single-pass A is significant when pooled across models (56
+discordant pairs favouring B against 33 favouring A; p = .019), though within individual models it
+reaches significance only for Nova Lite (p = .027) and is directional for DeepSeek-V3 and Qwen3-32B.
+The direction is consistent with the iterative literature reviewed in Chapter 2; the margin — two to
+seven points — is considerably smaller than the gains reported there, and §4.5 and §4.7 argue this is
+a property of the baseline: against a single-pass system equipped with hybrid retrieval, reranking
+and a twenty-passage context, there is simply less for iteration to repair.
 
-**Figure 4.1** — grouped bar chart, accuracy by system grouped by hop (notebook N2 / by-type).
+Parallel decomposition does not improve on single-pass retrieval. F trails A under DeepSeek-V3 and
+Qwen3-32B and the pooled comparison marginally favours A (23 pairs to 29). The mechanism is visible
+in the design: F must phrase later-hop sub-questions before earlier hops are resolved, so a
+sub-question such as "the spouse of *that director*" goes to the retriever with its key entity
+unresolved. No published study was found reporting this negative result — or its converse — under
+matched conditions, and it stands in tension with the decomposition gains of Ammann, Golde and Akbik
+(2025) on MultiHop-RAG, obtained on a different benchmark with a different retrieval stack.
+`[MultiHop: the E4–E6 arm tests directly whether the discrepancy is dataset-driven.]`
 
-**Analysis (expand into own prose; the findings and framing are fixed):**
-- **Iteration (B) is the best orchestration** — rank-1 in all three models (0.513 / 0.527 / 0.347). B>A is
-  significant pooled across models (paired sign test p=.019; individually significant only on Nova,
-  p=.027; directional on DeepSeek/Qwen). This is consistent with IRCoT/Adaptive-RAG on MuSiQue; the
-  smaller margin here is expected because A is a far stronger single-pass baseline (hybrid+rerank,
-  20-chunk context, small pool) than the BM25-top-k baselines those papers improve on (§6 / analysis §6).
-- **Parallel decomposition (F) does *not* beat naive (A)** — F ≤ A on 2 of 3 models (pooled slightly
-  favours A). Interpret via the *dead-bridge* problem: F issues bridge sub-questions ("the spouse of
-  *that director*") blind, so later-hop retrievals are weak. **This is a novel finding** — no published
-  precedent in either direction — and stands in tension with Ammann et al. (2025), who found
-  decomposition helps on MultiHop-RAG; the MultiHop arm (E4–E6) is the reconciling test.
-- **Sequential vs parallel decomposition (F-seq vs F):** F-seq > F directionally in all three models but
-  **not significantly** (pooled p=.203); its edge concentrates at 2-hop. The bridge-resolution *mechanism*
-  is nonetheless validated (§4.3 / §7.9 of the analysis: F-seq assembles complete gold evidence on
-  100/150 vs F's 75) — the generator fails to convert the better evidence.
-- **B vs F-seq:** B leads in all three models (directional, not significant); both resolve bridges — B
-  adaptively, F-seq by pre-decomposition — at differing cost (§4.5).
+Sequential decomposition improves on parallel decomposition in direction but not significantly.
+F-seq exceeds F under all three models (51 discordant pairs to 38 pooled; p = .203) and is the
+best-performing decomposition variant everywhere, but the evidence at this sample size does not
+support a stronger claim. Notably, the mechanism *is* demonstrable even where the accuracy gain is
+not: F-seq assembled the complete gold evidence set for 100 of 150 questions against F's 75 — the
+bridge-resolution step retrieves what parallel decomposition misses — yet much of the advantage is
+lost at generation (§4.7).
 
----
+Accuracy declines with hop depth for every system and model. Under DeepSeek-V3, for example, System B
+falls from 0.577 on two-hop questions to 0.296 on four-hop; the full per-hop tables are in Appendix
+`[X]`. The four-hop stratum (n = 27) is small, and per-stratum differences there should be read as
+indicative only.
 
-## 4.3 Study 2 — Retriever × orchestration (novel contribution) — corrected from pilot
+## 4.3 The retrieval pipeline and its interaction with orchestration (Study 2)
 
-> **⚠ Correction of an earlier pilot claim.** A preliminary n=50 study (DeepSeek only, pre-final config)
-> reported that *dense-only retrieval wins on MuSiQue and B-minus (0.640) is the best system*. **This did
-> not replicate at n=150 and is refuted** (below). The reversal is retained as a *methodological finding*
-> about small-sample RAG evaluation (§4.7 / analysis §4.1), not as a result.
+Table 4.2 reports the paired effect of the retrieval pipeline — hybrid retrieval with reranking
+against dense-only retrieval — for each orchestration under DeepSeek-V3; the same pattern holds under
+the other two models.
 
-*Evidence: `compute-metrics`, per-query paired sign tests (analysis §3.1).*
-
-**Table 4.3 — Retriever effect (containment accuracy), MuSiQue, DeepSeek-V3.** (Same direction on Qwen &
-Nova — Table 4.1; per-cell numbers for all models in the analysis report.)
-
-| Orchestration | hybrid+rerank | dense-only | Δ (hybrid − dense) |
+| Orchestration | Hybrid | Dense-only | Difference |
 |---|---|---|---|
-| naive (A / A-minus) | 0.487 | 0.420 | **+0.067** |
-| iterative (B / B-minus) | 0.513 | 0.447 | **+0.066** |
-| parallel decomp. (F / F-minus) | 0.453 | 0.427 | +0.026 |
-| sequential decomp. (F-seq / F-seq-minus) | 0.480 | 0.433 | +0.047 |
+| Single-pass (A) | 0.487 | 0.420 | +0.067 |
+| Iterative (B) | 0.513 | 0.447 | +0.066 |
+| Parallel decomposition (F) | 0.453 | 0.427 | +0.026 |
+| Sequential decomposition (F-seq) | 0.480 | 0.433 | +0.047 |
 
-**Finding (verified): hybrid retrieval beats dense-only, consistently but modestly.** All **24** cells
-(8 systems × 3 models) favour hybrid — zero reversals; hybrid also retrieves strictly more gold (higher
-recall@5) in every cell. The effect is small per cell (~3–7 pts) and **no single (model, orchestration)
-contrast reaches significance** at n=150, but it is **highly significant pooled** (paired sign test:
-overall b=212, c=136, **p=5.5×10⁻⁵**; per-model DeepSeek p=.006, Nova p=.030, Qwen p=.059 marginal).
+*Table 4.2 — containment accuracy by retriever, MuSiQue, DeepSeek-V3, n=150 per cell.*
 
-**Required phrasing:** report this as *directionally universal and significant when pooled* — never claim
-per-cell significance.
+The hybrid pipeline outperformed its dense-only ablation in all twenty-four cells of the matrix —
+every orchestration, under every model — and retrieved strictly more gold evidence in every cell as
+well. The per-cell differences are modest, between three and seven points, and no single cell reaches
+significance on its own; pooled across the matrix, however, the effect is unambiguous (212 discordant
+pairs favouring hybrid against 136; p = 5.5 × 10⁻⁵). Pooled within models, the effect is significant
+for DeepSeek-V3 (p = .006) and Nova Lite (p = .030) and marginal for Qwen3-32B (p = .059). The
+appropriate summary is that the pipeline's benefit is directionally universal and statistically
+secure in aggregate, while being too small to certify in any single configuration — a distinction
+this chapter maintains deliberately.
 
-**Figure 4.5** — clustered bars: hybrid vs dense-only accuracy per orchestration (DeepSeek), MuSiQue.
+The result carries an interpretive subtlety specific to MuSiQue. As described in §3.6, MuSiQue's
+distractor paragraphs are mined with BM25, making them adversarial to lexical retrieval by
+construction; one might therefore have expected the lexical arm of the hybrid pipeline to be a
+liability here. That the full pipeline nonetheless wins every cell suggests the cross-encoder
+reranker filters the lexical noise that the BM25 arm admits. No published evaluation of reranker
+robustness to BM25-mined distractors was found, so this explanation is offered as this study's
+interpretation rather than as an established mechanism.
 
-**Analysis (expand):**
-- *Consistency with the literature:* BEIR (Thakur et al. 2021) establishes that no retriever dominates
-  across datasets; a hybrid/rerank pipeline outperforming dense-only is unremarkable *in general*.
-- *The MuSiQue nuance:* MuSiQue's hard distractors are **BM25-mined with intermediate answers masked**
-  (Trivedi et al. 2022) — adversarial to lexical retrieval *by construction*. Hybrid winning **despite**
-  this implies the cross-encoder reranker filters the lexical noise the BM25 arm surfaces. **State this as
-  the study's interpretation** — no direct published evidence exists for reranker robustness to
-  BM25-adversarial distractors (analysis §6.3).
-- *Dataset dependence* — the headline of Study 2 — **cannot be concluded until MultiHop (E4–E6) runs.**
-  The pilot's cross-dataset contrast (hybrid +0.20 on news vs flat on MuSiQue) is exactly the claim the
-  final MultiHop arm must confirm or revise. `[E4–E6 pending]`
+These findings correct an earlier result from this project's own pilot phase, and the correction is
+reported deliberately. A fifty-question pilot on DeepSeek-V3, run before the final configuration was
+frozen, had shown the opposite pattern — dense-only retrieval apparently outperforming hybrid, with
+the dense-only iterative system the best of all systems tested. At n = 150 under paired testing the
+reversal disappears in every cell. The pilot conclusion is attributable to sampling noise compounded
+by configuration drift between pilot and final runs, and its failure to replicate is itself one of
+the study's findings on evaluation reliability, taken up under RQ4 in §4.6 and in Chapter 5.
 
----
+## 4.4 Secondary metrics and the metric audit
 
-## 4.4 Answer-quality metrics and the metric audit — A4 / O6
+Token-level F1 tracks the containment ordering throughout (DeepSeek-V3: A 0.444, B 0.477, F 0.416,
+F-seq 0.463), so no ranking claim in this chapter depends on the choice between the primary metric
+and its lexical secondary. Exact match is zero across all systems: MuSiQue gold answers are almost
+never reproduced verbatim by instruction-tuned generators, which produce sentences rather than spans.
+This is precisely the failure of strict exact match as an instrument for generative systems that
+motivated the containment convention (§3.7), and it is reported here as evidence for that metric
+choice rather than as a finding about the systems. The full metric-agreement analysis appears in
+Appendix `[X]`.
 
-*Evidence: `compute-metrics` (`avg_token_f1`, `accuracy_exact`); N4 agreement matrix. CRAG judge omitted
-by design (disclose).*
+## 4.5 Cost (RQ2)
 
-**Table 4.4 — Answer-quality metrics, MuSiQue, DeepSeek-V3.**
+Table 4.3 reports cost per correct answer — total billed generation cost divided by correct answers —
+for selected configurations; the full twenty-four-cell table is in Appendix `[X]`.
 
-| System | Containment (primary) | Exact match | Token F1 |
-|---|---|---|---|
-| A | 0.487 | 0.000 | 0.444 |
-| B | 0.513 | 0.000 | 0.477 |
-| F | 0.453 | 0.000 | 0.416 |
-| F-seq | 0.480 | 0.000 | 0.463 |
+| Configuration | Accuracy | Cost per correct answer |
+|---|---|---|
+| Nova Lite — A | 0.273 | $0.0008 |
+| Qwen3-32B — A | 0.473 | $0.0013 |
+| Qwen3-32B — F-seq | 0.480 | $0.0023 |
+| Qwen3-32B — B | 0.527 | $0.0042 |
+| DeepSeek-V3 — A | 0.487 | $0.0042 |
+| DeepSeek-V3 — B | 0.513 | $0.0171 |
 
-**Analysis (expand):** the secondaries track the primary ordering (B ≥ F-seq > A > F on token-F1), so no
-finding rests on one metric. **Exact-match is 0.000 across the board** — MuSiQue gold answers are rarely
-reproduced as an exact normalised string, which is precisely why containment (and token-F1) are the
-appropriate metrics and why a strict EM would be uninformative here; report this as a metric-choice
-justification, not a null result. Containment is stricter than the official MultiHop-RAG word-intersection
-scorer (analysis §6), so reported accuracy is conservative. *(Full metric-agreement heatmap: N4.)*
+*Table 4.3 — cost-effectiveness of selected configurations, MuSiQue. Costs are billed generation
+charges; the reranker is metered separately and identically for all hybrid systems.*
 
----
+The accuracy–cost frontier is occupied entirely by the two cheaper models: in order of increasing
+cost and accuracy, Nova-A, Nova-F-seq, Qwen-A, Qwen-F-seq, Qwen-B. Every DeepSeek-V3 configuration is
+dominated — most strikingly, Qwen3-32B's iterative system exceeds DeepSeek-V3's on accuracy (0.527
+against 0.513) at roughly a quarter of the cost per correct answer. Within each model, iteration
+costs roughly four times as much per correct answer as single-pass retrieval; whether that premium is
+worthwhile depends on how the deployment values its two-to-seven accuracy points. Sequential
+decomposition occupies a consistent middle ground and appears on the frontier under both cheaper
+models. The general conclusion for RQ2 is that model choice dominates orchestration choice in the
+economics: selecting the mid-tier model with iteration outperforms selecting the strongest model at
+any orchestration, on both axes at once.
 
-## 4.5 Cost and latency — RQ2
+Latency follows call structure: the single-pass systems answer in one to three seconds at the 95th
+percentile, the iterative and sequential systems in seven to twelve. Cross-model latency comparisons
+are confounded by serving infrastructure and are not made.
 
-*Evidence: N2 `variance_tbl`; N5 `fig_pareto`. `cost_usd` = billed Bedrock LLM cost only; the Cohere
-reranker is a separately-metered per-retrieval charge (hybrid systems only), reported separately.*
+## 4.6 Rank stability and orchestration robustness (RQ3, RQ4)
 
-**Table 4.5 — Cost-per-correct, MuSiQue (selected cells; full 24-cell grid in analysis §5).**
+Ranking the eight systems by accuracy within each model and correlating the rankings across models
+yields Kendall τ-b of 0.741 (DeepSeek–Qwen), 0.643 (DeepSeek–Nova) and 0.706 (Qwen–Nova), each
+significant at the 5% level. The ordering is stable in its essentials: the iterative system ranks
+first under every model, sequential decomposition is the best decomposition variant under every
+model, and the four dense-only twins occupy the bottom of the ranking almost everywhere. For RQ3,
+the practical reading is that an orchestration choice made on one cost-efficient model carries to its
+neighbours; single-model evaluations, ubiquitous in the literature, would not have revealed whether
+this was so. `[MultiHop: cross-dataset stability is added when E4–E6 complete.]`
 
-| Cell | Accuracy | $/correct | Pareto? |
-|---|---|---|---|
-| Nova-A | 0.273 | $0.00083 | ✓ (cheapest) |
-| Qwen-A | 0.473 | $0.00128 | ✓ |
-| Qwen-F-seq | 0.480 | $0.00230 | ✓ |
-| **Qwen-B** | **0.527** | $0.00416 | ✓ (max accuracy) |
-| DeepSeek-A | 0.487 | $0.00425 | dominated |
-| DeepSeek-B | 0.513 | $0.01710 | dominated |
+The robustness half of RQ4 is answered by a failure the design converted into a measurement. Nova
+Lite could not execute the decomposition systems: its structured decomposition output failed to parse
+on roughly 85% of questions, and F and F-seq consequently collapsed to single-retrieval behaviour
+(mean retrieval counts near 1.4, against 3.5–3.7 for the same systems under the larger models). The
+iterative system, whose free-text routing assumes nothing about structured output, ran at full
+capability on the same model and ranked first. The deployable lesson is that decomposition
+orchestration presupposes reliable structured generation — an assumption that quietly fails below a
+capability threshold — whereas iterative reformulation degrades gracefully; for small-model
+deployments, iteration is the robust choice.
 
-**Figure 4.4** — Pareto frontier: accuracy vs cost-per-correct across all 24 cells (N5). **Headline cost figure.**
+The reliability half of RQ4 is answered by the pilot reversal reported in §4.3: conclusions drawn at
+n = 50 inverted at n = 150 under paired testing. Single-run, small-sample evaluation — the field's
+prevailing practice, as Chapter 2 documents — was demonstrably capable of producing a confident,
+wrong conclusion within this very study.
 
-**Finding (verified): the most expensive model is never the rational choice.** The Pareto frontier is
-**Nova-A → Nova-F-seq → Qwen-A → Qwen-F-seq → Qwen-B** — **every DeepSeek cell is dominated.** Qwen-B beats
-DeepSeek-B on accuracy (0.527 vs 0.513) at **24% of the cost** ($0.0042 vs $0.0171 per correct answer).
-Within every model, B costs ~4× A per correct answer — iteration buys accuracy but not cheaply. This is
-the Gap-2 contribution: cost-per-correct is unreported in the surveyed literature (analysis §6).
+## 4.7 The behaviour of the agentic systems
 
-*Latency: report p50/p95 per system (B and F-seq highest, ~7–12 s; A/-minus ~1–3 s). Cross-model latency
-carries a serving-infra confound — compare within a model (analysis §3.5).*
+The persisted trajectories permit an analysis of how the multi-step systems behave, beyond what they
+score. Four observations follow; the supporting tables are in Appendix `[X]`.
 
----
+**Self-termination is a confidence signal.** The iterative system stops early when its routing step
+elects to answer, and is otherwise forced to answer at the five-step budget. Early-stopped answers
+are dramatically more accurate than budget-forced ones in every cell: under DeepSeek-V3, 0.839
+against 0.429; under Qwen3-32B, 0.706 against 0.292; under Nova Lite, 0.577 against 0.224. Reaching
+the budget is a signal that the question is hard, not that the search was thorough.
 
-## 4.6 Cross-model rank stability and orchestration robustness — RQ3 / RQ4
+**The signal supports a free abstention policy.** Re-scoring the stored runs under a policy that
+answers only when the agent self-terminates raises the precision of delivered answers by seventeen
+to fifty-one points, at a coverage cost that varies sharply by model. Qwen3-32B offers the practical
+operating point: it self-terminates on 57% of questions, retaining 76% of its correct answers while
+filtering out roughly two-thirds of its errors. The policy costs nothing — the signal is emitted
+anyway. The converse policy, redirecting budget-forced questions to the cheap single-pass system,
+performs *worse* than simply letting the agent answer: the single-pass system does even worse on
+exactly those questions. Budget exhaustion identifies questions that are intrinsically hard for
+every strategy, not questions the agent in particular has failed.
 
-*Evidence: N1 `kendall_tau_b`; per-system accuracy (exp 50/51/53).*
+**Errors are overwhelmingly generation-side.** With the twenty-passage budget, at least one gold
+passage was present in the answering context for 93–99% of questions in every system, and between
+87% and 99% of all errors occurred with gold evidence already in context. No system answered
+correctly without gold evidence present — there were no lucky parametric guesses in 1,200 audited
+runs. On this benchmark, at this context size, retrieval is close to solved and generation is the
+binding constraint — which explains at once why orchestration gains are modest (§4.2) and why F-seq's
+superior evidence assembly fails to convert fully into accuracy.
 
-**Table 4.6 — System ranking by accuracy, per model (MuSiQue).**
+**Where generation fails is positional.** Restricting attention to runs where the complete gold
+evidence set was in context — retrieval fully controlled — accuracy falls from 0.727 when the deepest
+needed passage sits in the top five context positions to 0.469 when it sits in the bottom five, a
+twenty-six point decline that persists within a single hop stratum. The pattern is consistent with
+the position-sensitivity literature (Liu et al., 2023), with one caveat stated plainly: context
+position here is assigned by the reranker rather than randomised, so position and question difficulty
+are partially confounded, and the finding is correlational. A randomised-position replication is
+identified as future work.
 
-| Rank | DeepSeek-V3 | Qwen3-32B | Nova Lite |
-|---|---|---|---|
-| 1 | B | B | B |
-| 2 | A | F-seq | F-seq |
-| 3 | F-seq | A | B-minus |
-| 4 | F | B-minus / F-seq-minus (tie) | F |
-| … | (A-minus last) | (A-minus / F-minus last) | (A-minus / F-minus / F-seq-minus tie last) |
+## 4.8 The MultiHop-RAG arm
 
-**Kendall τ-b across models:** DeepSeek↔Qwen **0.741**, DeepSeek↔Nova **0.643**, Qwen↔Nova **0.706** —
-all three pairwise correlations significant.
+`[Pending — E4–E6. This section will report the same tables and contrasts on the news benchmark,
+completing Study 2's dataset comparison and testing whether the decomposition result of §4.2 and the
+retriever result of §4.3 transfer to a lexically-conventional corpus. If the scope is narrowed to
+MuSiQue-only instead, delete this section and adjust §§1.5, 3.6 and 5 accordingly.]`
 
-**Findings (verified):**
-- **Rankings are stable across the capability gradient (RQ3/RQ4):** B is rank-1 in all three models;
-  F-seq is the best decomposition variant in all three; the four `-minus` twins cluster at the bottom.
-  τ-b 0.64–0.74 (all significant) → the orchestration ranking generalises across cost-efficient models —
-  a deployable conclusion, and evidence against single-model RAG benchmarking.
-- **Orchestration robustness (a distinct RQ4 result): decomposition presupposes reliable structured
-  output.** Nova Lite's decomposer parse-fails (~85% of queries), collapsing F/F-seq to naive retrieval;
-  iterative free-text reformulation (B) still works on Nova (rank-1). **The model-robust multi-hop
-  strategy is iteration, not decomposition** — connecting to the System-B routing redesign (§3.3) that
-  fixed the same JSON-fragility for B.
-- With n=150 the single-digit-query noise of the pilots is materially reduced; report bootstrap CIs and
-  state where cells overlap (analysis §3).
+## 4.9 Summary
 
----
-
-## 4.7 Summary of findings
-
-Per research question (MuSiQue arm; MultiHop completes RQ1/RQ3 and the Study-2 dataset contrast):
-
-- **RQ1 (accuracy by orchestration + hop):** Iteration (B) is best in all models; sequential
-  decomposition (F-seq) is the best decomposition variant but only directionally > parallel (F); parallel
-  decomposition does **not** beat naive — a novel result.
-- **RQ2 (cost per correct):** Qwen3-32B + iteration is the rational configuration; every frontier-cost
-  (DeepSeek) cell is Pareto-dominated.
-- **RQ3 (ranking across models):** Stable — τ-b 0.64–0.74, B rank-1 throughout. `[MultiHop confirms]`
-- **RQ4 (predictability / robustness):** Rankings generalise; and decomposition orchestration is
-  model-fragile (Nova collapse) while iteration is robust.
-- **Novel — retriever × orchestration:** Hybrid > dense-only, consistently but modestly (pooled
-  p=5.5×10⁻⁵), on MuSiQue. The **dataset-dependence** headline awaits MultiHop `[E4–E6 pending]`.
-- **Behavioural (analysis §7):** the agent's self-termination is a valid confidence signal (early-stop
-  20–61 pts more accurate than budget-forced), yielding a zero-cost abstention policy; generation, not
-  retrieval, is the dominant error source (93–99% coverage; 87–99% of errors have gold in context), and
-  accuracy degrades as needed evidence sits deeper in the 20-chunk context.
-- **Methodological:** the n=50→n=150 reversal of the retriever finding is quantified evidence that
-  small-sample RAG comparisons mislead (feeds RQ4; §4.3 correction).
-
-> These feed Chapter 5's per-RQ conclusions (Conclusions /20). Chapter 5 and the MultiHop-dependent rows
-> require E4–E6.
-
----
-
-## Figure/table → source index
-
-| Artefact | Source |
-|---|---|
-| T4.1/T4.2 accuracy, F4.1 bars | `compute-metrics`, `metrics-by-type` (exp 50/51/53), N2 |
-| T4.3 / F4.5 retriever 4×2 | `compute-metrics`, analysis §3.1 |
-| T4.4 quality, F4.3 agreement | `compute-metrics`, N4 |
-| T4.5 cost, F4.4 Pareto | N2 `variance_tbl`, N5 `fig_pareto`, analysis §5 |
-| T4.6 rank stability | N1 `kendall_tau_b`, analysis §3.3 |
-| Behavioural sub-studies | analysis §7 (termination, abstention §7.8, position §7.9) |
+On MuSiQue, under three cost-efficient models: iterative retrieval is the strongest and most robust
+orchestration, significantly better than single-pass when pooled; parallel decomposition does not
+improve on a strong single-pass baseline, a negative result without published precedent; sequential
+decomposition improves on parallel directionally and demonstrably assembles better evidence, but the
+gain is largely lost at generation. The hybrid retrieval pipeline beats its dense-only ablation in
+all twenty-four cells — modestly per cell, decisively in aggregate — despite the benchmark's
+lexically-adversarial construction. System rankings are stable across models; the accuracy–cost
+frontier is owned by the mid-tier model, and the strongest model is never the economical choice. The
+agent's self-termination decision is a usable confidence signal enabling a zero-cost abstention
+policy; residual errors are dominated by generation failing over evidence it already holds,
+concentrated where that evidence sits deep in the context. A pilot-scale version of this evaluation
+reached the opposite conclusion about retrievers before reversing at full sample size — a caution
+about small-sample evaluation that the field's prevailing practice does not currently heed.
