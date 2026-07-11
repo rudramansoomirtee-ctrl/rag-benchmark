@@ -24,10 +24,20 @@ completeness, and the absence of scoring anomalies; the audit and the full stati
 reproduced in Appendix `[X]`.
 
 Because every system answered the same questions, all comparisons in this chapter are paired, and
-significance statements use exact paired sign tests unless stated otherwise. Two phrasing conventions
-are applied throughout, following the statistical results rather than preceding them: effects that
-are consistent in direction but individually underpowered are described as *directional*, and pooled
-tests are reported as pooled, never as per-cell findings.
+significance statements use exact paired sign tests unless stated otherwise. Accuracy cells are
+reported with 95% confidence intervals from a seeded non-parametric bootstrap (10,000 resamples,
+percentile method). Three phrasing conventions are applied throughout, following the statistical
+results rather than preceding them. Effects consistent in direction but individually underpowered
+are described as *directional*; pooled tests are reported as pooled, never as per-cell findings; and
+nominal significance is distinguished from multiplicity-corrected significance. On the last point,
+a Holm–Bonferroni correction across the six pooled orchestration contrasts examined leaves **none**
+of them significant at the 5% level — the strongest (parallel decomposition over single-pass on
+MultiHop-RAG, p = .011) narrowly misses its corrected threshold of .0083 — whereas the four pooled
+retriever contrasts **all survive** the same correction within their family, with room to spare
+(p ≤ 5.5 × 10⁻⁵ against thresholds of .0125–.05). Orchestration conclusions in this chapter
+therefore rest on the *consistency* of direction across models and the *coherence* of the
+cross-dataset pattern, and are labelled nominally significant where p < .05 uncorrected; the
+retriever conclusions rest on corrected significance outright.
 
 ## 4.2 Accuracy by orchestration strategy (RQ1)
 
@@ -35,25 +45,30 @@ Table 4.1 reports containment accuracy for all eight systems under each model.
 
 | System | DeepSeek-V3 | Qwen3-32B | Nova Lite |
 |---|---|---|---|
-| A (single-pass) | 0.487 | 0.473 | 0.273 |
-| A-minus | 0.420 | 0.420 | 0.260 |
-| B (iterative) | 0.513 | 0.527 | 0.347 |
-| B-minus | 0.447 | 0.467 | 0.307 |
-| F (parallel decomp.) | 0.453 | 0.440 | 0.300 † |
-| F-minus | 0.427 | 0.420 | 0.260 † |
-| F-seq (sequential decomp.) | 0.480 | 0.480 | 0.320 † |
-| F-seq-minus | 0.433 | 0.467 | 0.260 † |
+| A (single-pass) | 0.487 [.41–.57] | 0.473 [.39–.55] | 0.273 [.20–.35] |
+| A-minus | 0.420 [.35–.50] | 0.420 [.34–.50] | 0.260 [.19–.33] |
+| B (iterative) | 0.513 [.43–.59] | 0.527 [.45–.61] | 0.347 [.27–.43] |
+| B-minus | 0.447 [.37–.53] | 0.467 [.39–.55] | 0.307 [.23–.38] |
+| F (parallel decomp.) | 0.453 [.37–.53] | 0.440 [.36–.52] | 0.300 [.23–.37] † |
+| F-minus | 0.427 [.35–.51] | 0.420 [.34–.50] | 0.260 [.19–.33] † |
+| F-seq (sequential decomp.) | 0.480 [.40–.56] | 0.480 [.40–.56] | 0.320 [.25–.39] † |
+| F-seq-minus | 0.433 [.35–.51] | 0.467 [.39–.55] | 0.260 [.19–.33] † |
 
-*Table 4.1 — containment accuracy, MuSiQue, n=150 per cell. † Nova Lite's decomposition systems
-degraded to single-retrieval behaviour (§4.6) and approximate its System A rather than genuine
-decomposition.*
+*Table 4.1 — containment accuracy with bootstrap 95% CIs, MuSiQue, n=150 per cell. † Nova Lite's
+decomposition systems degraded to single-retrieval behaviour (§4.6) and approximate its System A
+rather than genuine decomposition. Note that the per-cell intervals overlap heavily across
+orchestrations within a model — the paired analyses below, not the marginal intervals, carry the
+comparative claims.*
 
 Three results emerge.
 
 Iterative retrieval is the strongest orchestration under every model. B ranks first in all three
-columns, and the improvement over single-pass A is significant when pooled across models (56
-discordant pairs favouring B against 33 favouring A; p = .019), though within individual models it
-reaches significance only for Nova Lite (p = .027) and is directional for DeepSeek-V3 and Qwen3-32B.
+columns, and the improvement over single-pass A is nominally significant when pooled across models
+(56 discordant pairs favouring B against 33 favouring A; p = .019), though within individual models
+it reaches nominal significance only for Nova Lite (p = .027), is directional for DeepSeek-V3 and
+Qwen3-32B, and — like every orchestration contrast in this study — does not survive the Holm
+correction described in §4.1. The claim that iteration leads on this dataset therefore rests on its
+rank-1 position under all three models rather than on any corrected test.
 The direction is consistent with the iterative literature reviewed in Chapter 2; the margin — two to
 seven points — is considerably smaller than the gains reported there, and §4.5 and §4.7 argue this is
 a property of the baseline: against a single-pass system equipped with hybrid retrieval, reranking
@@ -102,11 +117,12 @@ The hybrid pipeline outperformed its dense-only ablation in all twenty-four cell
 every orchestration, under every model — and retrieved strictly more gold evidence in every cell as
 well. The per-cell differences are modest, between three and seven points, and no single cell reaches
 significance on its own; pooled across the matrix, however, the effect is unambiguous (212 discordant
-pairs favouring hybrid against 136; p = 5.5 × 10⁻⁵). Pooled within models, the effect is significant
-for DeepSeek-V3 (p = .006) and Nova Lite (p = .030) and marginal for Qwen3-32B (p = .059). The
-appropriate summary is that the pipeline's benefit is directionally universal and statistically
-secure in aggregate, while being too small to certify in any single configuration — a distinction
-this chapter maintains deliberately.
+pairs favouring hybrid against 136; p = 5.5 × 10⁻⁵ — a value that survives the Holm correction over
+the retriever-contrast family with an order of magnitude to spare). Pooled within models, the effect
+is significant for DeepSeek-V3 (p = .006) and Nova Lite (p = .030) and marginal for Qwen3-32B
+(p = .059). The appropriate summary is that the pipeline's benefit is directionally universal and
+multiplicity-robust in aggregate, while being too small to certify in any single configuration — a
+distinction this chapter maintains deliberately.
 
 The result carries an interpretive subtlety specific to MuSiQue. As described in §3.6, MuSiQue's
 distractor paragraphs are mined with BM25, making them adversarial to lexical retrieval by
@@ -240,28 +256,33 @@ Table 4.4 reports containment accuracy for the full factorial on MultiHop-RAG.
 
 | System | DeepSeek-V3 | Qwen3-32B | Nova Lite |
 |---|---|---|---|
-| A | 0.830 | 0.820 | 0.785 |
-| A-minus | 0.670 | 0.685 | 0.675 |
-| B | 0.825 | 0.845 | 0.755 |
-| B-minus | 0.760 | 0.775 | 0.760 |
-| F | **0.855** | **0.875** | 0.770 † |
-| F-minus | 0.785 | 0.790 | 0.695 † |
-| F-seq | 0.845 | 0.845 | 0.775 † |
-| F-seq-minus | 0.715 | 0.725 | 0.710 † |
+| A | 0.830 [.78–.88] | 0.820 [.77–.87] | 0.785 [.73–.84] |
+| A-minus | 0.670 [.61–.74] | 0.685 [.62–.75] | 0.675 [.61–.74] |
+| B | 0.825 [.77–.88] | 0.845 [.80–.90] | 0.755 [.70–.81] |
+| B-minus | 0.760 [.70–.82] | 0.775 [.72–.83] | 0.760 [.70–.82] |
+| F | **0.855** [.81–.90] | **0.875** [.83–.92] | 0.770 [.71–.83] † |
+| F-minus | 0.785 [.73–.84] | 0.790 [.74–.85] | 0.695 [.63–.76] † |
+| F-seq | 0.845 [.79–.90] | 0.845 [.80–.90] | 0.775 [.72–.83] † |
+| F-seq-minus | 0.715 [.65–.78] | 0.725 [.67–.79] | 0.710 [.65–.77] † |
 
-*Table 4.4 — containment accuracy, MultiHop-RAG, n=200 per cell. † Nova Lite's decomposition systems
-degraded to near-single-retrieval behaviour again (mean retrieval counts 1.45–1.57 against 3.4–3.5
-under the larger models), replicating the robustness finding of §4.6 on a second dataset.*
+*Table 4.4 — containment accuracy with bootstrap 95% CIs, MultiHop-RAG, n=200 per cell. † Nova Lite's
+decomposition systems degraded to near-single-retrieval behaviour again (mean retrieval counts
+1.45–1.57 against 3.4–3.5 under the larger models), replicating the robustness finding of §4.6 on a
+second dataset. The A/A-minus intervals are disjoint under every model — the retriever effect on this
+dataset is visible even in the marginal intervals, unlike any orchestration contrast.*
 
 Absolute accuracy is far higher than on MuSiQue — 0.83 rather than 0.49 for the single-pass baseline —
 consistent with MultiHop-RAG's less adversarial construction. Three results carry the chapter's
 argument to its conclusion.
 
 **The orchestration ranking inverts.** Parallel decomposition, which failed to improve on single-pass
-retrieval on MuSiQue, is the *best* system on MultiHop-RAG under both capable models: significantly
-better than A pooled across them (26 discordant pairs to 10; p = .011, individually significant under
-Qwen3-32B at p = .019), and significantly better than the iterative system (33 pairs to 18; p = .049) —
-at roughly a third of B's cost per correct answer. Iteration, first-ranked everywhere on MuSiQue, does
+retrieval on MuSiQue, is the *best* system on MultiHop-RAG under both capable models: nominally
+significantly better than A pooled across them (26 discordant pairs to 10; p = .011, nominally
+significant under Qwen3-32B alone at p = .019), and better than the iterative system at the
+conventional boundary (33 pairs to 18; p = .049) — at roughly a third of B's cost per correct answer.
+As §4.1 disclosed, neither contrast survives the six-test Holm correction (the F-over-A test misses
+its .0083 threshold narrowly); what cannot be attributed to multiplicity is the *pattern* — F ahead
+of A and of B under every model on this dataset, the exact mirror of its position on MuSiQue. Iteration, first-ranked everywhere on MuSiQue, does
 not beat single-pass retrieval here at all (28 pairs to 31; p = .80). Sequential decomposition's
 directional advantage over parallel also reverses (24:31 in F's favour). The mechanism proposed in
 §4.2 explains both halves at once: parallel decomposition's weakness is that later-hop sub-questions
@@ -299,12 +320,14 @@ conclusion with several parts. **Which orchestration wins is a property of the d
 method.** On MuSiQue, whose hops depend sequentially on one another, iterative retrieval ranks first
 under every model and parallel decomposition fails to beat single-pass retrieval; on MultiHop-RAG,
 whose evidence requirements are largely independent, the ranking inverts — parallel decomposition is
-the best and cheapest multi-query strategy, significantly ahead of both single-pass and iterative
-retrieval, while iteration no longer pays for itself. The retriever result has the same shape: the
-hybrid pipeline beats its dense-only ablation everywhere, but the effect is an order of magnitude
-larger on news (up to sixteen points, individually significant in every model, concentrated almost
-entirely in lexically-anchored comparison questions) than on the lexically-adversarial MuSiQue
-(three to seven points, significant only pooled). Within a dataset, rankings are stable across the
+the best and cheapest multi-query strategy, nominally significantly ahead of both single-pass and
+iterative retrieval, while iteration no longer pays for itself. The two halves of the study differ in
+statistical weight and are reported accordingly: the orchestration contrasts are nominally significant
+and directionally unanimous but do not survive multiplicity correction, whereas the retriever result
+is multiplicity-robust outright — the hybrid pipeline beats its dense-only ablation everywhere, with
+an effect an order of magnitude larger on news (up to sixteen points, Holm-corrected significant in
+every model, concentrated almost entirely in lexically-anchored comparison questions) than on the
+lexically-adversarial MuSiQue (three to seven points, significant only pooled). Within a dataset, rankings are stable across the
 cost-efficient model gradient; across datasets they are not — so benchmark structure, not model
 choice, is the decision-relevant variable, and single-benchmark evaluations of RAG orchestration
 generalise less than the literature assumes.

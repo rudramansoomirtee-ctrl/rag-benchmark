@@ -173,6 +173,24 @@ B is rank-1 in all three models; F-seq is the best decomposition variant in all 
   (max 2,340 tokens; qids 17845/17853/17868/17873) — LiteLLM likely dropped the param for Nova's API shape
   (`drop_params=True`). Benign (Nova near-free, correctness unaffected); footnote in the write-up.
 
+### 3.6 Confidence intervals and multiplicity (added 2026-07-11; covers both arms)
+
+**Bootstrap 95% CIs** (seeded, 10,000 resamples, percentile) computed for all 48 accuracy cells and
+embedded in Ch4 Tables 4.1/4.4. Interval half-widths ≈ ±.07–.08 (n=150) and ±.05–.06 (n=200). Per-cell
+intervals overlap heavily across orchestrations within a model — comparative claims correctly rest on
+the *paired* tests, not marginal intervals. Notable exception: **A vs A-minus intervals are disjoint
+under every model on MultiHop** — the retriever effect there is visible even marginally.
+
+**Holm–Bonferroni sensitivity (α=.05).** Family 1 — the six pooled orchestration contrasts
+(B-vs-A, F-vs-A, F-seq-vs-F × 2 datasets): the smallest p (MultiHop F>A, p=.0113) misses its
+corrected threshold (.0083), so **no orchestration contrast survives correction**; all orchestration
+claims are *nominally significant / directionally unanimous*, and are phrased accordingly in Ch4.
+Family 2 — the four pooled retriever contrasts (MuSiQue pooled 5.45e-5; MultiHop per-model 6.2e-13,
+5.0e-10, 4.8e-5): **all four survive** with large margins. The asymmetry is now stated explicitly in
+Ch4 §4.1/§4.9: retriever conclusions are multiplicity-robust; orchestration conclusions rest on
+cross-model consistency and the cross-dataset pattern. (F>B on MultiHop, p=.049, is reported as
+boundary-level only.)
+
 ---
 
 ## 4. Findings (graded)
