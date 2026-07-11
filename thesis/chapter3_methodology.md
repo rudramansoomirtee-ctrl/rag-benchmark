@@ -2,10 +2,11 @@
 
 > **Status: complete draft for your review — not a hand-in.** This is a prose rewrite of the earlier
 > scaffold: same facts and design, academic register, internal-document citations replaced by primary
-> sources or appendix pointers. Before submission: (a) rewrite in your own voice; (b) export the
-> figures (Mermaid sources remain in the repository) to numbered images; (c) resolve the remaining
-> `[CONFIRM]` markers (hardware; MultiHop sample when the second dataset is run); (d) attach the
-> reproducibility appendix.
+> sources or appendix pointers. Before submission: (a) rewrite in your own voice; (b) export the seven
+> figures — Mermaid source for each lives in `thesis/figures/figure_3_1.mmd` … `figure_3_7.mmd` — to
+> numbered images (paste each `.mmd` into mermaid.live, or run `mmdc -i figure_3_1.mmd -o figure_3_1.png`
+> for each); (c) resolve the remaining `[CONFIRM]` markers (hardware; MultiHop sample when the second
+> dataset is run); (d) attach the reproducibility appendix.
 
 ---
 
@@ -31,7 +32,7 @@ strategy is implemented behind a single programming interface and executed by on
 experiment records a provenance fingerprint — the exact code version, configuration, and query sample
 — sufficient to reproduce it (§3.8).
 
-*Figure 3.1 — experimental design overview. [Export from repository Mermaid source before submission.]*
+*Figure 3.1 — experimental design overview. [Source: `thesis/figures/figure_3_1.mmd` — export before submission.]*
 
 ## 3.2 The controlled comparison
 
@@ -64,7 +65,7 @@ replaced an earlier design in which several retrieval improvements were stacked 
 stacking confounds levers, and the revised design manipulates the retriever as a single factor
 instead.
 
-*Figure 3.2 — the single-variable orchestration comparison. [Export before submission.]*
+*Figure 3.2 — the single-variable orchestration comparison. [Source: `thesis/figures/figure_3_2.mmd`.]*
 
 ## 3.3 The eight systems
 
@@ -127,7 +128,8 @@ in the recorded retrieval count. The fallback matters beyond robustness. On the 
 panel it converts a would-be crash into a measurable finding about which strategies small models can
 execute at all (§3.5).
 
-*Figures 3.3–3.5 — control flow of systems B, F and F-seq. [Export before submission.]*
+*Figures 3.3–3.5 — control flow of systems B, F and F-seq. [Sources: `thesis/figures/figure_3_3.mmd`,
+`figure_3_4.mmd`, `figure_3_5.mmd`.]*
 
 ## 3.4 The shared retrieval substrate
 
@@ -152,7 +154,7 @@ comparison questions frequently identify an article by its publisher, which the 
 expose; without the metadata such questions fail across every system even when retrieval succeeds.
 Since the formatting is common to all systems, it cannot advantage any one strategy.
 
-*Figure 3.6 — the retrieval substrate and the dense-only ablation path. [Export before submission.]*
+*Figure 3.6 — the retrieval substrate and the dense-only ablation path. [Source: `thesis/figures/figure_3_6.mmd`.]*
 
 ## 3.5 Models and inference
 
@@ -236,6 +238,9 @@ as a wrong answer: failures remain in the accuracy denominator and their rate is
 hidden. In the final matrix, no run failed.
 
 ## 3.8 Reproducibility, provenance and ethics
+
+*Figure 3.7 — the reproducible, idempotent pipeline: ingest, index, run the two studies at a frozen
+commit, compute metrics, analyse. [Source: `thesis/figures/figure_3_7.mmd`.]*
 
 The full stack — document store, search index, tracing service and application — is containerised,
 and every stage of the pipeline (ingestion, indexing, experiment execution, metric computation) is

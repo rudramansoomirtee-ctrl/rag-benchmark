@@ -1,0 +1,18 @@
+%% Figure 3.2 — The controlled single-variable orchestration comparison. The three multi-query strategies (B, F, F-seq) share the retriever, the generator and an identical 20-chunk fused budget; only the query-production logic (purple) differs. System A is the single-pass baseline.
+flowchart LR
+    Q(["Question"]):::data
+    Q --> A0 & B0 & F0 & FS0
+    A0["<b>A</b> · one retrieval pass · top-20"]:::sys
+    B0["<b>B</b> · retrieve→reformulate loop<br/>≤5 steps · evidence accumulates"]:::sys
+    F0["<b>F</b> · decompose → parallel retrievals"]:::sys
+    FS0["<b>F-seq</b> · decompose → sequential,<br/>bridge-resolved retrievals"]:::sys
+    B0 --> FUSE
+    F0 --> FUSE
+    FS0 --> FUSE
+    A0 --> ANS
+    FUSE["RRF fuse → top-20 fused budget<br/>(identical for B / F / F-seq)"]:::fixed
+    FUSE --> ANS["One answer call<br/>same generator · same prompt"]:::out
+    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
+    classDef fixed fill:#fce4ec,stroke:#ad1457,color:#880e4f
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c

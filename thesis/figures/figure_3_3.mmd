@@ -1,0 +1,8 @@
+%% Figure 3.3 — System B's loop: a free-text ROUTE reply (ANSWER / SEARCH: q) drives either another retrieval or the final answer, bounded at five steps; evidence accumulates via RRF across iterations.
+stateDiagram-v2
+    [*] --> RETRIEVE
+    RETRIEVE --> ROUTE: fuse all iterations' hits → top-20
+    ROUTE --> REFORMULATE: reply "SEARCH: q"
+    ROUTE --> ANSWER: reply "ANSWER", or step = max (5)
+    REFORMULATE --> RETRIEVE: new search query
+    ANSWER --> [*]

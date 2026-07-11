@@ -1,0 +1,13 @@
+%% Figure 3.6 — The shared hybrid substrate (retrieve): BM25 + dense, RRF over a pool of 20, then cross-encoder rerank. The dashed path is the Study-2 ablation: semantic_only=True short-circuits to dense-kNN alone, bypassing BM25, fusion and rerank.
+flowchart LR
+    q(["query"]):::data --> EMB["embed · BAAI/llm-embedder · 768-d"]:::step
+    q --> BM["BM25 · lexical"]:::step
+    EMB --> KNN["dense kNN · HNSW · cosine"]:::step
+    BM --> RRF["RRF fuse · pool = 20"]:::step
+    KNN --> RRF
+    RRF --> RR["rerank · Cohere Rerank 3.5 (Bedrock)"]:::step
+    RR --> TK["top-k context"]:::out
+    KNN -. "semantic_only = True (A-minus / B-minus)" .-> TK
+    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef step fill:#e0f2f1,stroke:#00695c,color:#004d40
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c

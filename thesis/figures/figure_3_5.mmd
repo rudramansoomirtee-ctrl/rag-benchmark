@@ -1,0 +1,12 @@
+%% Figure 3.5 — System F-seq: ordered hops, each substituting the prior hop's resolved answer into its retrieval query, fused to the 20-chunk budget for one final answer.
+flowchart TB
+    Q(["Question"]):::data --> D["Decompose · ordered sub-questions"]:::sys
+    D --> H1["Hop 1 · retrieve → sub-answer"]:::sys
+    H1 -->|carry bridge answer| H2["Hop 2 · substitute bridge → retrieve → sub-answer"]:::sys
+    H2 -->|carry| Hn["Hop n …"]:::sys
+    Hn --> FUSE["RRF fuse all hops → top-20<br/>+ resolved facts as scaffold"]:::fixed
+    FUSE --> ANS["Answer once"]:::out
+    classDef data fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef sys fill:#ede7f6,stroke:#4527a0,color:#311b92
+    classDef fixed fill:#fce4ec,stroke:#ad1457,color:#880e4f
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c

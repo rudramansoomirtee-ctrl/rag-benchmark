@@ -1,0 +1,9 @@
+%% Figure 3.7 — The reproducible, idempotent pipeline. Each stage re-runs safely; the matrix runs once on a frozen commit, one sample per dataset and one image build.
+flowchart LR
+    ING["ingest · MultiHop + MuSiQue"]:::step --> IDX["index corpora · OpenSearch HNSW<br/>(separate MuSiQue index)"]:::step
+    IDX --> RUN["run the two studies<br/>frozen SHA · one sample/dataset · one image"]:::hub
+    RUN --> MET["compute-metrics + metrics-by-type"]:::step
+    MET --> ANA["analysis notebook · N1–N5 → figures"]:::out
+    classDef step fill:#e0f2f1,stroke:#00695c,color:#004d40
+    classDef hub fill:#fff3e0,stroke:#e65100,color:#bf360c
+    classDef out fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c
