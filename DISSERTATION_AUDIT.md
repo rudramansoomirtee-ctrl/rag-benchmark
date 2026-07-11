@@ -348,6 +348,25 @@ distractors) — the intended anti-shortcut setting.
 | 42 | A,A-minus | MultiHop | retrieval-pipeline effect on news |
 | 43 | B-minus | MuSiQue | semantic-only iterative (best MuSiQue, 0.640) |
 
+## 5d. FINAL MATRIX — COMPLETE (2026-07-11)
+
+The frozen final matrix is done: **9,600 runs, 1 failure (0.01%), $24.59 LLM spend.** Experiment ids:
+**50/51/53** (MuSiQue × DeepSeek/Qwen/Nova, SHA `12f2a49`/`ec457dc`) and **54/56/57** (MultiHop ×
+DeepSeek/Qwen/Nova, SHA `d03dd3b`; intervening commits verified inert — thesis prose + resume/billing
+fix only). Full analysis: `thesis/musique_matrix_analysis.md` (Part I MuSiQue §1–8, Part II MultiHop +
+cross-dataset synthesis §9–10). **Supersedes §5c's n=50 findings entirely.**
+
+Headline (the study's central result): **orchestration and retriever effects both flip by dataset,
+consistently across models.** MuSiQue: B rank-1 all models (B>A pooled p=.019); F ≤ A; hybrid>dense
+small, pooled-only (p=5.5e-05). MultiHop: **F best on both capable models** (F>A pooled p=.011, F>B
+p=.049) at ~⅓ of B's cost; B does NOT beat A (p=.80); hybrid>dense large and **per-model significant**
+(p ≤ 5e-05 each; comparison-type +42 pts — lexical-anchor mechanism); Ammann tension resolved as
+dataset-dependence. Nova decomposition collapse replicated on both datasets. Pareto: Qwen-B (MuSiQue)
+and **Qwen-F dominates everything (MultiHop)** — the mid-tier model owns both frontiers. No null
+over-answering found. Rankings stable across models within a dataset (τ-b .64–.74), NOT across
+datasets. Thesis chapters 1/3/4 updated to the completed matrix (Ch4 §4.8 written; all [MultiHop]
+markers resolved; remaining placeholder: hardware CPU/RAM in Ch3 §3.8).
+
 ## 6. Bottom line
 
 **The code side of the audit is complete.** Done: **C1** (token F1), **C2**

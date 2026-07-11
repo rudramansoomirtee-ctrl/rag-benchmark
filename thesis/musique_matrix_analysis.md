@@ -1,6 +1,8 @@
-# MuSiQue Final Matrix — Comprehensive Analysis Report
+# Final Matrix — Comprehensive Analysis Report
 
-**Experiments E1–E3 (ids 50, 51, 53) · 3 models × 8 systems × 150 queries = 3,600 runs · 0 failures**
+**Part I (§1–§8): MuSiQue arm, E1–E3 (ids 50, 51, 53) · 3 models × 8 systems × 150 queries = 3,600 runs · 0 failures.**
+**Part II (§9–§10): MultiHop-RAG arm, E4–E6 (ids 54, 56, 57) · 3 models × 8 systems × 200 queries = 4,800 runs ·
+1 failure (0.02%) — completed 2026-07-11 at SHA `d03dd3b`. Matrix total: 9,600 runs, $24.59 LLM spend.**
 **Frozen config:** git SHA `12f2a49` (E3: `ec457dc`, verified inert — resume-logic commit only), seed 42, `top_k=20`,
 `fused_answer_top_k=20`, `retrieval_pool=40`, `max_agent_steps=5`, Cohere Rerank 3.5 (Bedrock, eu-central-1),
 `BAAI/llm-embedder`, LiteLLM 1.83.0, temperature 0. LLM spend: **$7.05** (DeepSeek $5.14 / Qwen $1.39 / Nova $0.52);
@@ -43,9 +45,14 @@ context). (11) compensatory search is directional (significant only on Qwen).
 at n=150 — reframe it as a *methods finding* about small-sample RAG unreliability (§4.1; feeds RQ4). Stale claims still
 live in DISSERTATION_AUDIT §5c, Chapter 3/4 pilot boxes, RELATED_WORK §8.
 
-**Status:** MuSiQue complete (E1–E3). MultiHop (E4–E6) not yet run — required for the Study-2 dataset contrast and the
-Ammann reconciliation. Numbers are externally plausible (above the open-domain GPT-3.5 band for explainable reasons;
-Nova recovers the published weak-model band — an internal control). See §8 for the write-up mapping and ⚠ cite-checks.
+**Status:** COMPLETE — both arms. MuSiQue (E1–E3, Part I §1–§8) and MultiHop-RAG (E4–E6, Part II §9–§10). The
+Study-2 dataset contrast is resolved, and it is the study's central result: **both the orchestration ranking and
+the retriever effect flip by dataset, consistently across models** — F (parallel decomposition) is the best system
+on MultiHop and significantly beats both A and B pooled over the capable models, while it fails against A on
+MuSiQue; the hybrid retriever's advantage is per-cell significant on MultiHop (p ≤ 5×10⁻⁵ in every model) but
+pooled-only on MuSiQue. The Ammann tension is reconciled as dataset-dependence (§9.2). Numbers are externally
+plausible (above the open-domain GPT-3.5 band for explainable reasons; Nova recovers the published weak-model band
+— an internal control). See §8 for the write-up mapping and ⚠ cite-checks; §10 for the cross-dataset synthesis.
 
 ---
 
@@ -424,6 +431,118 @@ directly.
 - Native-distractor MuSiQue ceilings — not re-verified.
 - Reranker-robustness-to-BM25-distractors — no direct evidence exists; frame as interpretation.
 - Nova single-call `max_tokens` overshoot (3–4 rows) — one-line footnote.
+
+---
+
+# Part II — MultiHop-RAG arm (E4–E6) and cross-dataset synthesis
+
+**Completed 2026-07-11 at SHA `d03dd3b` (trace-feature WIP stashed during the run to preserve the frozen-SHA
+guarantee).** Experiments: 54 (DeepSeek-V3), 56 (Qwen3-32B), 57 (Nova Lite); 200 seeded stratified queries
+(64 inference / 67 comparison / 45 temporal / 24 null; seed 42), identical across every cell; 4,800 runs;
+**1 failure** (exp 57, System A, qid 175 — clean NULL stub, scored wrong per the crash-is-wrong policy; 0.02%).
+Costs: DeepSeek $12.79 / Qwen $3.16 / Nova $1.55. E4 resumed from a 515-row partial via `--resume-id` with zero
+re-billing (the resumability fix working as designed).
+
+## 9. MultiHop-RAG results
+
+### 9.1 Accuracy grid (containment, n=200 per cell)
+
+| System | DeepSeek-V3 | Qwen3-32B | Nova Lite |
+|---|---|---|---|
+| A | 0.830 | 0.820 | 0.785 |
+| A-minus | 0.670 | 0.685 | 0.675 |
+| B | 0.825 | 0.845 | 0.755 |
+| B-minus | 0.760 | 0.775 | 0.760 |
+| **F** | **0.855** | **0.875** | 0.770 † |
+| F-minus | 0.785 | 0.790 | 0.695 † |
+| F-seq | 0.845 | 0.845 | 0.775 † |
+| F-seq-minus | 0.715 | 0.725 | 0.710 † |
+
+† Nova F-family degraded again (decompose parse-fail; n_steps 1.45–1.57 vs 3.4–3.5 on DeepSeek/Qwen) — same
+robustness finding as MuSiQue, replicated on the second dataset. Token-F1 tracks containment throughout
+(e.g. Qwen-F 0.870); Nova's token-F1 is depressed by verbosity (0.42–0.52) while containment holds.
+
+### 9.2 Orchestration on MultiHop — the ranking INVERTS relative to MuSiQue
+
+Paired discordant counts (b:c) and exact two-sided binomial p:
+
+| Contrast | DeepSeek | Qwen3 | Nova | Pooled |
+|---|---|---|---|---|
+| F vs A | 11:6 (p=.33) | 15:4 (**p=.019**) | 0:4 † | DS+Qwen 26:10 (**p=.011**) |
+| B vs A | 8:9 (p=1.0) | 14:9 (p=.41) | 6:13 (p=.17, A ahead) | 28:31 (p=.80) — **B does not beat A** |
+| F vs B | 11:5 | 11:5 | 11:8 | 33:18 (**p=.049**) — **F beats B** |
+| F-seq vs F | 11:13 | 10:16 | 3:2 | 24:31 (p=.42, F ahead) |
+
+- **Parallel decomposition (F) is the best system on MultiHop** — significantly better than A pooled over the
+  two capable models (p=.011; individually significant on Qwen) and significantly better than B pooled (p=.049) —
+  at roughly a third of B's cost. This **replicates Ammann et al. (2025)'s direction on their benchmark** and,
+  combined with Part I (F ≤ A on MuSiQue), **resolves the tension as dataset-dependence**: parallel
+  decomposition's blind-bridge weakness is fatal on MuSiQue's sequentially-dependent hops but irrelevant on
+  MultiHop's more independent evidence sets, where the extra sub-question retrievals are pure coverage gain.
+- **Iteration (B) does not pay on MultiHop** (pooled p=.80; directionally *behind* A on DeepSeek and Nova) —
+  the mirror image of MuSiQue where B was rank-1 everywhere. Iteration earns its cost only where hops are
+  genuinely sequential.
+- **F-seq ≤ F on MultiHop** (direction reverses from MuSiQue): sequential resolution adds latency/cost and a
+  bridge-error surface without benefit when hops don't depend on each other.
+
+### 9.3 Retriever effect on MultiHop — larger, and per-cell significant
+
+Hybrid − dense deltas: A +0.160/+0.135/+0.110 · B +0.065/+0.070/−0.005 · F +0.070/+0.085/+0.075 ·
+F-seq +0.130/+0.120/+0.065 (DS/Qwen/Nova). 11 of 12 cells favour hybrid (single tiny exception: Nova B −0.005).
+
+Pooled sign tests per model: DeepSeek 115:30 (**p=6×10⁻¹³**) · Qwen 129:47 (**p=5×10⁻¹⁰**) · Nova 99:49
+(**p=5×10⁻⁵**) · overall 343:126 (**p=3×10⁻²⁴**). Where MuSiQue needed pooling across the whole matrix to
+secure a small effect, MultiHop's effect is **individually significant within every model** — the
+dataset-dependence of the retrieval pipeline, now measured on both sides.
+
+**Mechanism, localised by question type:** the hybrid advantage concentrates overwhelmingly in **comparison
+questions** — DeepSeek A 0.791 vs A-minus **0.373** (+0.42; Qwen +0.36, Nova +0.28) — which name publishers
+("the TechCrunch article…"), giving BM25 exact lexical anchors dense embeddings blur. Inference-type shows
+near-zero retriever effect (0.938 vs 0.938 on DeepSeek). This is the cleanest mechanistic evidence in the study
+that the pipeline's value tracks the *lexical anchorability* of the query distribution.
+
+**Null questions: no over-answering found.** All systems score 0.833–0.958 on nulls; B is *better* than A on
+nulls (0.958 vs 0.917 on DeepSeek) — the over-answering concern from the GraphRAG literature does not
+materialise for these orchestrations under refusal-equivalence scoring.
+
+### 9.4 Cost on MultiHop
+
+Pareto frontier collapses to two points: **Nova-A (0.785, $0.00064/correct) → Qwen-F (0.875, $0.00147/correct)**.
+Qwen-F dominates *everything* else — including every DeepSeek cell (DeepSeek-F: 0.855 at $0.00557, 3.8× the
+cost for less accuracy) and Qwen-B (0.845 at $0.00384, 2.6× the cost for less accuracy). The RQ2 conclusion
+sharpens: on MultiHop, the rational configuration is the mid-tier model with parallel decomposition — the
+cheapest multi-query orchestration — and neither iteration nor the strongest model earns its premium.
+
+## 10. Cross-dataset synthesis — the study's central result
+
+| | MuSiQue (adversarial, sequential hops) | MultiHop-RAG (news, lexically anchored) |
+|---|---|---|
+| Best orchestration | **B** (rank-1 all models; B>A pooled p=.019) | **F** (best on both capable models; F>A p=.011, F>B p=.049) |
+| F vs A | F ≤ A (novel negative) | **F > A, significant** (replicates Ammann's direction) |
+| B vs A | +2.6 to +7.4 pts | ≈ 0 (p=.80) |
+| F-seq vs F | F-seq ahead (directional) | F ahead (directional) |
+| Hybrid vs dense | small (+3–7 pts/cell), pooled-only p=5.5×10⁻⁵ | large (up to +16 pts), **per-model significant**, overall p=3×10⁻²⁴ |
+| Retriever mechanism | reranker rescues BM25-mined distractor noise | BM25 exploits lexical anchors (comparison-type +42 pts) |
+| Nova decomposition collapse | 85–87% parse-fail | replicated (n_steps ≈ 1.5) |
+| Pareto | Qwen-B tops frontier | **Qwen-F dominates everything** |
+| Absolute difficulty | hard (best 0.527) | easier (best 0.875) |
+
+**Within-dataset, across models: stable** (MuSiQue τ-b .64–.74 all significant; MultiHop preserves F/F-seq/A/B
+top-4 on both capable models). **Across datasets: the rankings invert.** The refined RQ3/RQ4 answer: *an
+orchestration choice transfers across cost-efficient models but NOT across datasets* — benchmark choice, not
+model choice, is the decision-relevant variable. Combined deployable guidance: match orchestration to hop
+structure (iterative for sequentially-dependent questions; parallel decomposition for independent multi-evidence
+questions) and match the retriever to the corpus's lexical anchorability — then choose the mid-tier model,
+which owned every Pareto frontier in the study.
+
+**Write-up impact (supersedes the corresponding §8 lines):** Ch4 §4.8 is now writable from §9; Ch4 §4.2/§4.3's
+`[MultiHop]` markers resolve to: F≯A is *MuSiQue-specific* (not a general negative), the Ammann tension is
+resolved as dataset-dependence, and the retriever finding upgrades from "pooled-only" to "per-model significant
+on news." Ch5 per-RQ answers: RQ1 dataset-conditional; RQ2 mid-tier dominates both frontiers; RQ3 stable across
+models within dataset; RQ4 rankings not portable across datasets + Nova robustness replicated. One integrity
+audit item for the appendix: E4–E6 ran at SHA `d03dd3b` (Part I at `12f2a49`/`ec457dc`); the intervening commits
+touched thesis prose and the resume/billing fix only — no retrieval, scoring, or generation semantics — and the
+budget/prompt/config snapshot is field-identical across all six experiments (verified in `config_json`).
 
 ---
 

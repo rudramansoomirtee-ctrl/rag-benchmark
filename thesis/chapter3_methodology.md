@@ -5,8 +5,8 @@
 > sources or appendix pointers. Before submission: (a) rewrite in your own voice; (b) export the seven
 > figures — Mermaid source for each lives in `thesis/figures/figure_3_1.mmd` … `figure_3_7.mmd` — to
 > numbered images (paste each `.mmd` into mermaid.live, or run `mmdc -i figure_3_1.mmd -o figure_3_1.png`
-> for each); (c) resolve the remaining `[CONFIRM]` markers (hardware; MultiHop sample when the second
-> dataset is run); (d) attach the reproducibility appendix.
+> for each); (c) resolve the one remaining `[CONFIRM]` marker (hardware CPU/RAM — §3.8); (d) attach the
+> reproducibility appendix. Both dataset arms are complete; all sample sizes are final.
 
 ---
 
@@ -199,8 +199,8 @@ that every gold paragraph is present and indexed.
 Queries are selected once per dataset as a seeded, stratified sample — by question type for
 MultiHop-RAG, by hop count for MuSiQue — and the identical sample is reused by every system and every
 model, so all comparisons are paired. The MuSiQue sample comprises 150 questions (78 two-hop, 45
-three-hop, 27 four-hop; seed 42). The MultiHop-RAG sample comprises 200 questions
-`[CONFIRM when the MultiHop arm is run]`. Pilot experiments used fifty-question samples and exhibited
+three-hop, 27 four-hop; seed 42). The MultiHop-RAG sample comprises 200 questions (64 inference,
+67 comparison, 45 temporal, 24 null; seed 42). Pilot experiments used fifty-question samples and exhibited
 sampling noise large enough to reverse conclusions between runs; the final sample sizes were raised
 accordingly, and the pilot-to-final comparison is itself reported in Chapter 4 as evidence on the
 reliability of small-sample evaluation.

@@ -1,10 +1,10 @@
 # Chapter 1 — Introduction
 
 > **Status: complete draft for your review — not a hand-in.** Facts, gaps, RQs and contributions match
-> the as-built project exactly; citations are drawn only from the verified base (WRITING_GUIDE §4).
-> Before submission: (a) rewrite in your own voice — treat every sentence as replaceable, the *content*
-> as fixed; (b) confirm the two-dataset scope (this draft assumes the MultiHop arm, E4–E6, is run);
-> (c) confirm the supervisor-agreed scope; (d) fill the two `[CONFIRM]` markers.
+> the as-built project exactly, updated to the COMPLETED full matrix (both dataset arms, 9,600 runs);
+> citations are drawn only from the verified base (WRITING_GUIDE §4). Before submission: (a) rewrite in
+> your own voice — treat every sentence as replaceable, the *content* as fixed; (b) confirm the
+> supervisor-agreed scope; (c) fill the one remaining `[CONFIRM]` marker (repository/archival statement).
 
 ---
 
@@ -105,8 +105,9 @@ lexical retrieval (Trivedi et al., 2022; cf. Thakur et al., 2021 on the dataset-
 retrievers). Every run records the billed cost of each model call; correctness is scored by a
 deterministic containment metric with lexical secondaries; and every experiment persists a provenance
 fingerprint — commit hash, configuration, and the exact query sample — so that all reported numbers
-are reproducible from the released artefact. `[CONFIRM: final sample sizes — MuSiQue N=150;
-MultiHop-RAG N=200]`
+are reproducible from the released artefact. The final samples comprise 150 MuSiQue questions and
+200 MultiHop-RAG questions, seeded and stratified, identical across every cell: 9,600 evaluated runs
+in total.
 
 ## 1.6 Contributions
 
@@ -119,12 +120,15 @@ The dissertation makes five contributions.
 2. **Cost per correct answer as a first-class metric.** Billed per-call cost is recorded for every
    run and aggregated into cost-per-correct and an accuracy–cost Pareto analysis across all
    strategy–model configurations (Gap 2).
-3. **Empirical findings in the cost-efficient regime** (Gap 3), including: that iterative retrieval
-   is the strongest and most model-robust strategy; that parallel decomposition fails to improve on a
-   strong single-pass baseline — a result in tension with decomposition gains reported elsewhere
-   (Ammann, Golde and Akbik, 2025) and examined across both datasets; that the hybrid retrieval
-   pipeline's benefit is consistent but modest; and that residual errors are dominated by generation
-   failures occurring while the gold evidence is already present in context.
+3. **Empirical findings in the cost-efficient regime** (Gap 3), the central one being that *which
+   orchestration wins is a property of the dataset*: iterative retrieval ranks first on MuSiQue's
+   sequentially dependent hops while parallel decomposition fails there, yet on MultiHop-RAG the
+   ranking inverts and parallel decomposition significantly beats both single-pass and iterative
+   retrieval — replicating the direction of Ammann, Golde and Akbik (2025) on their benchmark while
+   showing it does not transfer. The retrieval pipeline's value is likewise dataset-dependent (large
+   and per-model significant on news; small and pooled-only on the lexically-adversarial benchmark),
+   and residual errors are dominated by generation failures occurring while the gold evidence is
+   already present in context.
 4. **Behavioural analysis of agentic RAG.** The iterative agent's self-termination decision is shown
    to be a usable confidence signal: answering only when the agent stops early yields large precision
    gains at tunable coverage, at zero additional cost.

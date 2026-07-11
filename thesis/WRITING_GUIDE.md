@@ -27,15 +27,14 @@ independent chapter reviews + the verified analysis.*
 
 Write from what is most settled outward. Recommended order:
 
-| # | Chapter | Status today | Gate |
+| # | Chapter | Status (2026-07-11) | Gate |
 |---|---|---|---|
-| 1 | **Ch3 Methodology** | Content complete & accurate (scaffold) | none — start here |
-| 2 | **Ch4 Results (MuSiQue half)** | Numbers verified, scaffold populated | none |
-| 3 | **Ch4 (MultiHop half)** | Empty | E4–E6 run (~5h, ~$10) |
-| 4 | **Ch2 Literature review** | ❌ existing chap2.docx unusable (wrong project) — rewrite from scratch | none (base exists: RELATED_WORK.md) |
-| 5 | **Ch1 Introduction** | ❌ no usable draft (plan/BG describe other projects) | supervisor scope confirmation |
-| 6 | **Ch5 Conclusions** | Not started | Ch4 complete |
-| 7 | Abstract, front matter, references | — | everything else |
+| 1 | **Ch3 Methodology** | ✅ full prose draft; both arms final; one placeholder left (hardware, §3.8) | your voice rewrite |
+| 2 | **Ch4 Results** | ✅ full prose draft, BOTH arms populated (9,600 runs; §4.8 written; no pending markers) | your voice rewrite |
+| 3 | **Ch2 Literature review** | ✅ full prose draft from the verified base | your voice rewrite + ⚠ ref re-checks |
+| 4 | **Ch1 Introduction** | ✅ full prose draft, updated to the completed matrix | your voice rewrite + supervisor scope |
+| 5 | **Ch5 Conclusions** | ❌ not started — **now unblocked** (every RQ has complete evidence; see analysis §10 for the per-RQ answers) | none — the next writing task |
+| 6 | Abstract, front matter, reference list, appendices, figure exports | not started | Ch5 |
 
 Why this order: Ch3 re-grounds you in your own design (best warm-up); Ch4 is transcription of verified
 results; Ch2/Ch1 are framing that must match what Ch3/Ch4 actually say; Ch5 answers RQs that Ch4 must

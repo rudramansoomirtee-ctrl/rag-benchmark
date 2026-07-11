@@ -1,9 +1,8 @@
 # Chapter 4 — Results
 
-> **Status: complete prose draft for your review — not a hand-in.** All MuSiQue numbers are the
-> verified final-matrix values (n=150 per cell, 3,600 runs, zero failures; every figure spot-checked
-> against the raw data). The MultiHop-RAG arm has not yet been run: §4.8 is a stub, and the two
-> sentences flagged `[MultiHop]` must be completed or the scope narrowed before submission. Before
+> **Status: complete prose draft for your review — not a hand-in. BOTH arms now populated.** MuSiQue
+> numbers are the verified final-matrix values (n=150 per cell, 3,600 runs, zero failures); MultiHop-RAG
+> numbers (§4.8) are the completed E4–E6 arm (n=200 per cell, 4,800 runs, one failure, 0.02%). Before
 > submitting: rewrite in your own voice; move the statistical machinery references to the appendix;
 > renumber tables/figures per institutional style.
 
@@ -16,11 +15,13 @@ strategies, each with its dense-only twin — under three language models on the
 3,600 runs in total (8 systems × 150 questions × 3 models), with no failed runs. All cells share the
 frozen configuration described in §3.8: one commit, one index build, one seeded stratified sample
 (78 two-hop, 45 three-hop, 27 four-hop questions; seed 42), identical query identifiers in every
-cell, the Cohere reranker, and a uniform twenty-passage answer budget. Total generation cost for the
-matrix was approximately $7. An independent integrity audit confirmed sample identity across all
-cells, configuration constancy, completeness, and the absence of scoring anomalies; the audit and the
-full statistical tables are reproduced in Appendix `[X]`. `[MultiHop: the corresponding paragraph for
-the news-corpus arm is added when E4–E6 complete.]`
+cell, the Cohere reranker, and a uniform twenty-passage answer budget. The MultiHop-RAG arm executed
+the same factorial over 200 seeded stratified questions (64 inference, 67 comparison, 45 temporal,
+24 null; seed 42): 4,800 further runs, of which one failed (0.02%) and is scored as incorrect under
+the declared policy. Total generation cost for the complete 9,600-run matrix was approximately $25.
+An independent integrity audit confirmed sample identity across all cells, configuration constancy,
+completeness, and the absence of scoring anomalies; the audit and the full statistical tables are
+reproduced in Appendix `[X]`.
 
 Because every system answered the same questions, all comparisons in this chapter are paired, and
 significance statements use exact paired sign tests unless stated otherwise. Two phrasing conventions
@@ -64,8 +65,10 @@ in the design: F must phrase later-hop sub-questions before earlier hops are res
 sub-question such as "the spouse of *that director*" goes to the retriever with its key entity
 unresolved. No published study was found reporting this negative result — or its converse — under
 matched conditions, and it stands in tension with the decomposition gains of Ammann, Golde and Akbik
-(2025) on MultiHop-RAG, obtained on a different benchmark with a different retrieval stack.
-`[MultiHop: the E4–E6 arm tests directly whether the discrepancy is dataset-driven.]`
+(2025) on MultiHop-RAG, obtained on a different benchmark with a different retrieval stack. The
+MultiHop-RAG arm of this study (§4.8) resolves the discrepancy directly: on that benchmark, F is the
+*best* system under both capable models — the negative result is a property of MuSiQue's sequentially
+dependent hops, not of parallel decomposition in general.
 
 Sequential decomposition improves on parallel decomposition in direction but not significantly.
 F-seq exceeds F under all three models (51 discordant pairs to 38 pooled; p = .203) and is the
@@ -173,7 +176,10 @@ first under every model, sequential decomposition is the best decomposition vari
 model, and the four dense-only twins occupy the bottom of the ranking almost everywhere. For RQ3,
 the practical reading is that an orchestration choice made on one cost-efficient model carries to its
 neighbours; single-model evaluations, ubiquitous in the literature, would not have revealed whether
-this was so. `[MultiHop: cross-dataset stability is added when E4–E6 complete.]`
+this was so. The MultiHop arm sharpens the answer in an important way: rankings are stable across
+models *within* each dataset, but they do **not** transfer *across* datasets — the systems that rank
+first on the two benchmarks are different (§4.8), so the decision-relevant variable is the benchmark's
+question structure, not the model.
 
 The robustness half of RQ4 is answered by a failure the design converted into a measurement. Nova
 Lite could not execute the decomposition systems: its structured decomposition output failed to parse
@@ -228,25 +234,88 @@ position here is assigned by the reranker rather than randomised, so position an
 are partially confounded, and the finding is correlational. A randomised-position replication is
 identified as future work.
 
-## 4.8 The MultiHop-RAG arm
+## 4.8 The MultiHop-RAG arm and the cross-dataset comparison
 
-`[Pending — E4–E6. This section will report the same tables and contrasts on the news benchmark,
-completing Study 2's dataset comparison and testing whether the decomposition result of §4.2 and the
-retriever result of §4.3 transfer to a lexically-conventional corpus. If the scope is narrowed to
-MuSiQue-only instead, delete this section and adjust §§1.5, 3.6 and 5 accordingly.]`
+Table 4.4 reports containment accuracy for the full factorial on MultiHop-RAG.
+
+| System | DeepSeek-V3 | Qwen3-32B | Nova Lite |
+|---|---|---|---|
+| A | 0.830 | 0.820 | 0.785 |
+| A-minus | 0.670 | 0.685 | 0.675 |
+| B | 0.825 | 0.845 | 0.755 |
+| B-minus | 0.760 | 0.775 | 0.760 |
+| F | **0.855** | **0.875** | 0.770 † |
+| F-minus | 0.785 | 0.790 | 0.695 † |
+| F-seq | 0.845 | 0.845 | 0.775 † |
+| F-seq-minus | 0.715 | 0.725 | 0.710 † |
+
+*Table 4.4 — containment accuracy, MultiHop-RAG, n=200 per cell. † Nova Lite's decomposition systems
+degraded to near-single-retrieval behaviour again (mean retrieval counts 1.45–1.57 against 3.4–3.5
+under the larger models), replicating the robustness finding of §4.6 on a second dataset.*
+
+Absolute accuracy is far higher than on MuSiQue — 0.83 rather than 0.49 for the single-pass baseline —
+consistent with MultiHop-RAG's less adversarial construction. Three results carry the chapter's
+argument to its conclusion.
+
+**The orchestration ranking inverts.** Parallel decomposition, which failed to improve on single-pass
+retrieval on MuSiQue, is the *best* system on MultiHop-RAG under both capable models: significantly
+better than A pooled across them (26 discordant pairs to 10; p = .011, individually significant under
+Qwen3-32B at p = .019), and significantly better than the iterative system (33 pairs to 18; p = .049) —
+at roughly a third of B's cost per correct answer. Iteration, first-ranked everywhere on MuSiQue, does
+not beat single-pass retrieval here at all (28 pairs to 31; p = .80). Sequential decomposition's
+directional advantage over parallel also reverses (24:31 in F's favour). The mechanism proposed in
+§4.2 explains both halves at once: parallel decomposition's weakness is that later-hop sub-questions
+are phrased before earlier hops resolve, which is fatal when hops depend on one another (MuSiQue's
+construction) and irrelevant when a question's evidence requirements are largely independent
+(MultiHop-RAG's inference and comparison questions), where the extra sub-question retrievals are pure
+coverage gain. This resolves the tension with Ammann, Golde and Akbik (2025) noted in §4.2: their
+decomposition gains on MultiHop-RAG replicate in direction here, and the contradiction with the
+MuSiQue result is dataset structure, not method.
+
+**The retriever effect is much larger on news, and no longer needs pooling.** The hybrid pipeline
+beats its dense-only twin by up to sixteen points on MultiHop-RAG (A vs A-minus: +0.160, +0.135,
++0.110 across the three models), and the paired effect is individually significant within every model
+(DeepSeek 115:30, p = 6×10⁻¹³; Qwen 129:47, p = 5×10⁻¹⁰; Nova 99:49, p = 5×10⁻⁵) — where MuSiQue
+required pooling the entire matrix to secure a three-to-seven point effect. The by-type breakdown
+localises the mechanism precisely: the advantage concentrates in **comparison questions**, which name
+their sources ("the TechCrunch article on…"), where the single-pass system scores 0.791 with the
+hybrid retriever against 0.373 without it under DeepSeek-V3 — a forty-two point gap — while
+inference-type questions show essentially no retriever effect at all (0.938 against 0.938). Lexical
+retrieval earns its keep exactly where queries contain lexical anchors, and contributes little where
+they do not. Null questions, finally, show no over-answering: every system scores 0.83–0.96 on the
+unanswerable set, and the iterative system is slightly *better* than single-pass there.
+
+**The economics sharpen.** The MultiHop-RAG accuracy–cost frontier collapses to two points: Nova-A
+(0.785 at $0.0006 per correct answer) and Qwen-F (0.875 at $0.0015). Qwen3-32B with parallel
+decomposition dominates every other configuration on both axes simultaneously — including every
+DeepSeek-V3 cell (DeepSeek-F reaches 0.855 at 3.8 times Qwen-F's cost) and Qwen's own iterative system
+(2.6 times the cost for less accuracy). Taken together with §4.5, the mid-tier model owns the frontier
+on both datasets; what changes between datasets is which orchestration accompanies it.
 
 ## 4.9 Summary
 
-On MuSiQue, under three cost-efficient models: iterative retrieval is the strongest and most robust
-orchestration, significantly better than single-pass when pooled; parallel decomposition does not
-improve on a strong single-pass baseline, a negative result without published precedent; sequential
-decomposition improves on parallel directionally and demonstrably assembles better evidence, but the
-gain is largely lost at generation. The hybrid retrieval pipeline beats its dense-only ablation in
-all twenty-four cells — modestly per cell, decisively in aggregate — despite the benchmark's
-lexically-adversarial construction. System rankings are stable across models; the accuracy–cost
-frontier is owned by the mid-tier model, and the strongest model is never the economical choice. The
-agent's self-termination decision is a usable confidence signal enabling a zero-cost abstention
-policy; residual errors are dominated by generation failing over evidence it already holds,
-concentrated where that evidence sits deep in the context. A pilot-scale version of this evaluation
-reached the opposite conclusion about retrievers before reversing at full sample size — a caution
-about small-sample evaluation that the field's prevailing practice does not currently heed.
+The completed matrix — eight systems, three models, two datasets, 9,600 runs — supports one central
+conclusion with several parts. **Which orchestration wins is a property of the dataset, not of the
+method.** On MuSiQue, whose hops depend sequentially on one another, iterative retrieval ranks first
+under every model and parallel decomposition fails to beat single-pass retrieval; on MultiHop-RAG,
+whose evidence requirements are largely independent, the ranking inverts — parallel decomposition is
+the best and cheapest multi-query strategy, significantly ahead of both single-pass and iterative
+retrieval, while iteration no longer pays for itself. The retriever result has the same shape: the
+hybrid pipeline beats its dense-only ablation everywhere, but the effect is an order of magnitude
+larger on news (up to sixteen points, individually significant in every model, concentrated almost
+entirely in lexically-anchored comparison questions) than on the lexically-adversarial MuSiQue
+(three to seven points, significant only pooled). Within a dataset, rankings are stable across the
+cost-efficient model gradient; across datasets they are not — so benchmark structure, not model
+choice, is the decision-relevant variable, and single-benchmark evaluations of RAG orchestration
+generalise less than the literature assumes.
+
+The remaining findings qualify and mechanise this picture. The mid-tier model owns the accuracy–cost
+frontier on both datasets — the strongest model is never the economical choice, and the frontier
+configuration is Qwen3-32B with iteration on MuSiQue and with parallel decomposition on MultiHop-RAG.
+Decomposition presupposes reliable structured output and silently collapses on the weakest model,
+on both datasets; iteration is the model-robust strategy. The iterative agent's self-termination
+decision is a usable confidence signal enabling a zero-cost abstention policy. Residual errors are
+dominated by generation failing over evidence already in context, concentrated where that evidence
+sits deep in the window. And a pilot-scale version of this evaluation reached the opposite conclusion
+about retrievers before reversing at full sample size — a caution about small-sample evaluation
+practice that the results above show to be far from hypothetical.
