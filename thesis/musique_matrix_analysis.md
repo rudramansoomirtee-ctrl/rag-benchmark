@@ -2,10 +2,10 @@
 
 **Part I (§1–§8): MuSiQue arm, E1–E3 (ids 50, 51, 53) · 3 models × 8 systems × 150 queries = 3,600 runs · 0 failures.**
 **Part II (§9–§10): MultiHop-RAG arm, E4–E6 (ids 54, 56, 57) · 3 models × 8 systems × 200 queries = 4,800 runs ·
-1 failure (0.02%) — completed 2026-07-11 at SHA `d03dd3b`. Matrix total: 9,600 runs, $24.59 LLM spend.**
+1 failure (0.02%) — completed 2026-07-11 at SHA `d03dd3b`. Matrix total: 8,400 runs, $24.59 LLM spend.**
 **Frozen config:** git SHA `12f2a49` (E3: `ec457dc`, verified inert — resume-logic commit only), seed 42, `top_k=20`,
 `fused_answer_top_k=20`, `retrieval_pool=40`, `max_agent_steps=5`, Cohere Rerank 3.5 (Bedrock, eu-central-1),
-`BAAI/llm-embedder`, LiteLLM 1.83.0, temperature 0. LLM spend: **$7.05** (DeepSeek $5.14 / Qwen $1.39 / Nova $0.52);
+`BAAI/llm-embedder`, LiteLLM 1.83.0, temperature 0. LLM spend: **$7.09** (DeepSeek $5.13 / Qwen $1.39 / Nova $0.57);
 Cohere rerank metered separately (not in `cost_usd`).
 **Verification:** three independent audits (data-integrity; statistics, itself independently cross-checked; literature),
 compiled 2026-07-05. Metrics table verified to match recomputation from raw runs exactly in all 24 cells.
@@ -145,7 +145,7 @@ Per-pair discordant counts (b = hybrid-only-right, c = dense-only-right):
 | F-minus | 7 | 7= | 6= |
 | A-minus | 8 | 7= | 6= |
 
-Kendall τ-b: DS↔Qwen **0.741** (p=.012) · DS↔Nova **0.643** (p=.030) · Qwen↔Nova **0.706** (p=.020) — all significant.
+Kendall τ-b: DS↔Qwen **0.741** (p=.012) · DS↔Nova **0.643** (p=.037) · Qwen↔Nova **0.706** (p=.018) — all significant (exact permutation p-values).
 B is rank-1 in all three models; F-seq is the best decomposition variant in all three; `-minus` twins cluster at the bottom.
 
 ### 3.4 Failure attribution (E1/DeepSeek; coverage = ≥1 gold chunk in the top-20 answering context)
@@ -156,7 +156,7 @@ B is rank-1 in all three models; F-seq is the best decomposition variant in all 
 | B | 98.7% | 88 | 71 | 2 | **0** |
 | F | 97.3% | 75 | 78 | 4 | **0** |
 | F-seq | 99.3% | **100** | 77 | 1 | **0** |
-| (minus twins) | 93–99% | 63–74 | 73–85 | 1–10 | **0** |
+| (minus twins) | 93–99% | 65–74 | 73–85 | 1–10 | **0** |
 
 - **Errors are 87–99% generation-side**; retrieval-failure explains only 1–10 of ~75 errors per system.
 - **Zero correct answers without gold in context** across all 1,200 runs — no parametric leakage; correctness genuinely
@@ -169,7 +169,7 @@ B is rank-1 in all three models; F-seq is the best decomposition variant in all 
 ### 3.5 Anomaly scan
 
 - 0 NULL answers (3,600/3,600); 0 cost outliers (>5× cell median); latency p95 ≤ 11.8 s (structural: B/F-seq multi-call).
-- `max_tokens=800` cap held for every single-call system (A max 582). **3–4 Nova rows exceeded the cap on single calls**
+- `max_tokens=800` cap held for every single-call system (A max 582). **10 Nova rows across 6 query ids exceeded the cap on single calls**
   (max 2,340 tokens; qids 17845/17853/17868/17873) — LiteLLM likely dropped the param for Nova's API shape
   (`drop_params=True`). Benign (Nova near-free, correctness unaffected); footnote in the write-up.
 
@@ -448,7 +448,7 @@ directly.
 - Zhou et al. (least-to-most) sequential-beats-parallel specifics — not quote-verified.
 - Native-distractor MuSiQue ceilings — not re-verified.
 - Reranker-robustness-to-BM25-distractors — no direct evidence exists; frame as interpretation.
-- Nova single-call `max_tokens` overshoot (3–4 rows) — one-line footnote.
+- Nova single-call `max_tokens` overshoot (10 rows across 6 query ids) — one-line footnote.
 
 ---
 
@@ -476,7 +476,7 @@ re-billing (the resumability fix working as designed).
 | F-seq | 0.845 | 0.845 | 0.775 † |
 | F-seq-minus | 0.715 | 0.725 | 0.710 † |
 
-† Nova F-family degraded again (decompose parse-fail; n_steps 1.45–1.57 vs 3.4–3.5 on DeepSeek/Qwen) — same
+† Nova F-family degraded again (decompose parse-fail; n_steps 1.45–1.57 vs 3.4–3.7 on DeepSeek/Qwen) — same
 robustness finding as MuSiQue, replicated on the second dataset. Token-F1 tracks containment throughout
 (e.g. Qwen-F 0.870); Nova's token-F1 is depressed by verbosity (0.42–0.52) while containment holds.
 

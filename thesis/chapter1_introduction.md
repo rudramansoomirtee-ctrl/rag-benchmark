@@ -1,7 +1,7 @@
 # Chapter 1 — Introduction
 
 > **Status: complete draft for your review — not a hand-in.** Facts, gaps, RQs and contributions match
-> the as-built project exactly, updated to the COMPLETED full matrix (both dataset arms, 9,600 runs);
+> the as-built project exactly, updated to the COMPLETED full matrix (both dataset arms, 8,400 runs);
 > citations are drawn only from the verified base (WRITING_GUIDE §4). Before submission: (a) rewrite in
 > your own voice — treat every sentence as replaceable, the *content* as fixed; (b) confirm the
 > supervisor-agreed scope; (c) fill the one remaining `[CONFIRM]` marker (repository/archival statement).
@@ -27,9 +27,9 @@ that standard single-pass RAG leaves a large fraction of such questions unanswer
 The research community's response has been a proliferation of *orchestration strategies*: control
 logic wrapped around the same retrieve-and-generate primitives. Iterative approaches interleave
 retrieval with reasoning, letting intermediate conclusions steer the next search (Trivedi et al.,
-2023). Decomposition approaches split the question into single-hop sub-questions before retrieving,
-either all at once or sequentially, carrying each resolved answer into the next sub-question (Press
-et al., 2023; Ammann, Golde and Akbik, 2025). Adaptive approaches try to route each question to the
+2023). Decomposition approaches split the question into single-hop sub-questions before retrieving —
+either all at once (Ammann, Golde and Akbik, 2025) or sequentially, carrying each resolved answer into
+the next sub-question (Press et al., 2023). Adaptive approaches try to route each question to the
 cheapest strategy that can answer it (Jeong et al., 2024). Each family reports improvements over a
 single-pass baseline. A practitioner deciding what to build, however, finds it surprisingly hard to
 learn from this literature which strategy to choose, and at what price.
@@ -40,15 +40,17 @@ Three properties of the current evidence base make that decision hard.
 
 First, published comparisons are confounded. Reported results on the same benchmark differ not only
 in orchestration strategy but simultaneously in chunking scheme, embedding model, retriever, reranker,
-prompt, and generator; there is no public leaderboard for MultiHop-RAG that would normalise these
-choices. When a decomposition paper and an iteration paper each claim gains over "standard RAG", the
-two baselines are rarely the same system, and the gains are not comparable.
+prompt, and generator; no public leaderboard existed for MultiHop-RAG at the time of writing that would
+normalise these choices (Appendix `[X]`). When a decomposition paper and an iteration paper each claim
+gains over "standard RAG", the two baselines are rarely the same system, and the gains are not
+comparable.
 
 Second, cost is almost never part of the result. The strategies differ substantially in the number of
 model calls they issue per question — an iterative agent may make ten times the calls of a single-pass
-system — yet a survey of nineteen comparator papers conducted for this study found dollar cost reported
-in only one appendix, and cost per correct answer reported nowhere. For deployment decisions the
-relevant quantity is not accuracy alone but what each additional correct answer costs.
+system — yet a survey of nineteen comparator papers conducted for this study (tabulated in Appendix
+`[X]`) found dollar cost reported in only one appendix, and cost per correct answer reported nowhere.
+For deployment decisions the relevant quantity is not accuracy alone but what each additional correct
+answer costs.
 
 Third, the evidence concentrates on models at the capability frontier, evaluated once, on samples small
 enough that single-digit query differences move the conclusions. Whether the reported orderings of
@@ -86,8 +88,8 @@ The study is organised around four questions:
 - **RQ3.** Is the ranking of strategies stable across language models spanning a capability gradient
   within the cost-efficient tier?
 - **RQ4.** How predictable and robust are these systems — do rankings replicate across samples of
-  practical size, and do strategies degrade gracefully when a model cannot support the structured
-  outputs they assume?
+  practical size, and what happens to each strategy when a model cannot support the structured
+  outputs it assumes?
 
 ## 1.5 Approach
 
@@ -106,7 +108,7 @@ retrievers). Every run records the billed cost of each model call; correctness i
 deterministic containment metric with lexical secondaries; and every experiment persists a provenance
 fingerprint — commit hash, configuration, and the exact query sample — so that all reported numbers
 are reproducible from the released artefact. The final samples comprise 150 MuSiQue questions and
-200 MultiHop-RAG questions, seeded and stratified, identical across every cell: 9,600 evaluated runs
+200 MultiHop-RAG questions, seeded and stratified, identical across every cell: 8,400 evaluated runs
 in total.
 
 ## 1.6 Contributions
@@ -123,12 +125,13 @@ The dissertation makes five contributions.
 3. **Empirical findings in the cost-efficient regime** (Gap 3), the central one being that *which
    orchestration wins is a property of the dataset*: iterative retrieval ranks first on MuSiQue's
    sequentially dependent hops while parallel decomposition fails there, yet on MultiHop-RAG the
-   ranking inverts and parallel decomposition significantly beats both single-pass and iterative
-   retrieval — replicating the direction of Ammann, Golde and Akbik (2025) on their benchmark while
-   showing it does not transfer. The retrieval pipeline's value is likewise dataset-dependent (large
-   and per-model significant on news; small and pooled-only on the lexically-adversarial benchmark),
-   and residual errors are dominated by generation failures occurring while the gold evidence is
-   already present in context.
+   ranking inverts and parallel decomposition leads both single-pass and iterative retrieval — a
+   nominally significant advantage, directionally unanimous across models though not surviving
+   multiplicity correction — replicating the direction of Ammann, Golde and Akbik (2025) on their
+   benchmark while showing it does not transfer. The retrieval pipeline's value is likewise
+   dataset-dependent, and here the evidence is multiplicity-robust (large and per-model significant on
+   news; small and pooled-only on the lexically-adversarial benchmark); residual errors are dominated
+   by generation failures occurring while the gold evidence is already present in context.
 4. **Behavioural analysis of agentic RAG.** The iterative agent's self-termination decision is shown
    to be a usable confidence signal: answering only when the agent stops early yields large precision
    gains at tunable coverage, at zero additional cost.

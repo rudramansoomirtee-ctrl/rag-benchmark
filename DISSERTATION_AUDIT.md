@@ -21,7 +21,10 @@ Legend: ✅ on point · ⚠️ partial (wording fix or pending run) · ❌ missi
 > dense-only = 8 systems) over MuSiQue + MultiHop on Qwen3-32B / DeepSeek-V3 / Nova Lite. Two scope
 > changes not yet reflected in §§1–4: **F-tuned → F-seq** (+ the A/B/F/F-seq "-minus" twins), and
 > **faithfulness/HHEM is descoped** (subsystem removed; columns unpopulated; future work). Read §§1–4 as
-> historical; trust §5c + the thesis chapters for the as-built design.
+> historical; trust §5c + the thesis chapters for the as-built design. **Scope note on §5c itself:**
+> §5c is authoritative for the *design* (systems, factorial, models) only — its n=50 pilot *findings*
+> were superseded, and in part refuted, by the final n=150/n=200 matrix; §5d and
+> `thesis/musique_matrix_analysis.md` are authoritative for all quantitative claims.
 
 ---
 
@@ -352,7 +355,7 @@ distractors) — the intended anti-shortcut setting.
 
 ## 5d. FINAL MATRIX — COMPLETE (2026-07-11)
 
-The frozen final matrix is done: **9,600 runs, 1 failure (0.01%), $24.59 LLM spend.** Experiment ids:
+The frozen final matrix is done: **8,400 runs, 1 failure (0.01%), $24.59 LLM spend.** Experiment ids:
 **50/51/53** (MuSiQue × DeepSeek/Qwen/Nova, SHA `12f2a49`/`ec457dc`) and **54/56/57** (MultiHop ×
 DeepSeek/Qwen/Nova, SHA `d03dd3b`; intervening commits verified inert — thesis prose + resume/billing
 fix only). Full analysis: `thesis/musique_matrix_analysis.md` (Part I MuSiQue §1–8, Part II MultiHop +
@@ -370,6 +373,11 @@ datasets. Thesis chapters 1/3/4 updated to the completed matrix (Ch4 §4.8 writt
 markers resolved; remaining placeholder: hardware CPU/RAM in Ch3 §3.8).
 
 ## 6. Bottom line
+
+> **Historical (2026-06-11, pre-final-matrix).** This section predates the 4×2 factorial and the
+> completed 8,400-run matrix. The "frozen 4×3 matrix" it asks you to run became the final matrix
+> recorded in §5d (exp 50/51/53/54/56/57) — that run is **done**, all N-cells are populated, and the
+> thesis chapters are drafted. Kept for provenance only.
 
 **The code side of the audit is complete.** Done: **C1** (token F1), **C2**
 (provenance + corpus fingerprint), **C3** (evidence-ever-seen for the ceiling),

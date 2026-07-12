@@ -162,7 +162,8 @@ and two benchmarks whose retrieval characteristics deliberately differ.
 > **Verification end-note (remove before submission; action per WRITING_GUIDE §4).** Verified against
 > primary sources during this project: Lewis et al. 2020 author list; Trivedi et al. 2022 distractor
 > construction; Trivedi et al. 2023 Table 4; Press et al. 2023 Table 1/14; Jeong et al. 2024 Table 8;
-> Thakur et al. 2021 abstract; Ammann et al. 2025 headline numbers; Chu et al. 2024 Table 1 (their
+> Thakur et al. 2021 abstract; Tang and Yang 2024 dataset construction and containment scoring;
+> Ammann et al. 2025 headline numbers; Chu et al. 2024 Table 1 (their
 > "+8.5%" abstract claim does not reconcile with the table — cite table values only). Still requiring
 > PDF re-verification before print (⚠): Karpukhin et al. 2020 full details; Yang et al. 2018; Shao et
 > al. 2023; Jiang et al. 2023; Yao et al. 2023; Zhou et al. 2023; Asai et al. 2024; Cormack et al.

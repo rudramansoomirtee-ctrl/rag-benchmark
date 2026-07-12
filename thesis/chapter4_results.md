@@ -17,8 +17,9 @@ frozen configuration described in §3.8: one commit, one index build, one seeded
 (78 two-hop, 45 three-hop, 27 four-hop questions; seed 42), identical query identifiers in every
 cell, the Cohere reranker, and a uniform twenty-passage answer budget. The MultiHop-RAG arm executed
 the same factorial over 200 seeded stratified questions (64 inference, 67 comparison, 45 temporal,
-24 null; seed 42): 4,800 further runs, of which one failed (0.02%) and is scored as incorrect under
-the declared policy. Total generation cost for the complete 9,600-run matrix was approximately $25.
+24 null; seed 42): 4,800 further runs, of which one failed (0.02% of that arm; 0.01% of the full
+matrix) and is scored as incorrect under
+the declared policy. Total generation cost for the complete 8,400-run matrix was approximately $25.
 An independent integrity audit confirmed sample identity across all cells, configuration constancy,
 completeness, and the absence of scoring anomalies; the audit and the full statistical tables are
 reproduced in Appendix `[X]`.
@@ -78,7 +79,8 @@ Parallel decomposition does not improve on single-pass retrieval. F trails A und
 Qwen3-32B and the pooled comparison marginally favours A (23 pairs to 29). The mechanism is visible
 in the design: F must phrase later-hop sub-questions before earlier hops are resolved, so a
 sub-question such as "the spouse of *that director*" goes to the retriever with its key entity
-unresolved. No published study was found reporting this negative result — or its converse — under
+unresolved. No published study was found in the literature survey conducted for this study (Appendix
+`[X]`) reporting this negative result — or its converse — under
 matched conditions, and it stands in tension with the decomposition gains of Ammann, Golde and Akbik
 (2025) on MultiHop-RAG, obtained on a different benchmark with a different retrieval stack. The
 MultiHop-RAG arm of this study (§4.8) resolves the discrepancy directly: on that benchmark, F is the
@@ -204,7 +206,7 @@ on roughly 85% of questions, and F and F-seq consequently collapsed to single-re
 iterative system, whose free-text routing assumes nothing about structured output, ran at full
 capability on the same model and ranked first. The deployable lesson is that decomposition
 orchestration presupposes reliable structured generation — an assumption that quietly fails below a
-capability threshold — whereas iterative reformulation degrades gracefully; for small-model
+capability threshold — whereas iterative reformulation, which assumes nothing about output structure, keeps functioning; for small-model
 deployments, iteration is the robust choice.
 
 The reliability half of RQ4 is answered by the pilot reversal reported in §4.3: conclusions drawn at
@@ -217,13 +219,13 @@ wrong conclusion within this very study.
 The persisted trajectories permit an analysis of how the multi-step systems behave, beyond what they
 score. Four observations follow; the supporting tables are in Appendix `[X]`.
 
-**Self-termination is a confidence signal.** The iterative system stops early when its routing step
+Self-termination proves to be a confidence signal. The iterative system stops early when its routing step
 elects to answer, and is otherwise forced to answer at the five-step budget. Early-stopped answers
 are dramatically more accurate than budget-forced ones in every cell: under DeepSeek-V3, 0.839
 against 0.429; under Qwen3-32B, 0.706 against 0.292; under Nova Lite, 0.577 against 0.224. Reaching
 the budget is a signal that the question is hard, not that the search was thorough.
 
-**The signal supports a free abstention policy.** Re-scoring the stored runs under a policy that
+The same signal supports an abstention policy that costs nothing. Re-scoring the stored runs under a policy that
 answers only when the agent self-terminates raises the precision of delivered answers by seventeen
 to fifty-one points, at a coverage cost that varies sharply by model. Qwen3-32B offers the practical
 operating point: it self-terminates on 57% of questions, retaining 76% of its correct answers while
@@ -233,7 +235,7 @@ performs *worse* than simply letting the agent answer: the single-pass system do
 exactly those questions. Budget exhaustion identifies questions that are intrinsically hard for
 every strategy, not questions the agent in particular has failed.
 
-**Errors are overwhelmingly generation-side.** With the twenty-passage budget, at least one gold
+The errors that remain are overwhelmingly generation-side. With the twenty-passage budget, at least one gold
 passage was present in the answering context for 93–99% of questions in every system, and between
 87% and 99% of all errors occurred with gold evidence already in context. No system answered
 correctly without gold evidence present — there were no lucky parametric guesses in 1,200 audited
@@ -241,7 +243,7 @@ runs. On this benchmark, at this context size, retrieval is close to solved and 
 binding constraint — which explains at once why orchestration gains are modest (§4.2) and why F-seq's
 superior evidence assembly fails to convert fully into accuracy.
 
-**Where generation fails is positional.** Restricting attention to runs where the complete gold
+Where generation fails turns out to be positional. Restricting attention to runs where the complete gold
 evidence set was in context — retrieval fully controlled — accuracy falls from 0.727 when the deepest
 needed passage sits in the top five context positions to 0.469 when it sits in the bottom five, a
 twenty-six point decline that persists within a single hop stratum. The pattern is consistent with
@@ -267,7 +269,7 @@ Table 4.4 reports containment accuracy for the full factorial on MultiHop-RAG.
 
 *Table 4.4 — containment accuracy with bootstrap 95% CIs, MultiHop-RAG, n=200 per cell. † Nova Lite's
 decomposition systems degraded to near-single-retrieval behaviour again (mean retrieval counts
-1.45–1.57 against 3.4–3.5 under the larger models), replicating the robustness finding of §4.6 on a
+1.45–1.57 against 3.4–3.7 under the larger models), replicating the robustness finding of §4.6 on a
 second dataset. The A/A-minus intervals are disjoint under every model — the retriever effect on this
 dataset is visible even in the marginal intervals, unlike any orchestration contrast.*
 
@@ -275,7 +277,7 @@ Absolute accuracy is far higher than on MuSiQue — 0.83 rather than 0.49 for th
 consistent with MultiHop-RAG's less adversarial construction. Three results carry the chapter's
 argument to its conclusion.
 
-**The orchestration ranking inverts.** Parallel decomposition, which failed to improve on single-pass
+The first result is that the orchestration ranking inverts. Parallel decomposition, which failed to improve on single-pass
 retrieval on MuSiQue, is the *best* system on MultiHop-RAG under both capable models: nominally
 significantly better than A pooled across them (26 discordant pairs to 10; p = .011, nominally
 significant under Qwen3-32B alone at p = .019), and better than the iterative system at the
@@ -293,7 +295,7 @@ coverage gain. This resolves the tension with Ammann, Golde and Akbik (2025) not
 decomposition gains on MultiHop-RAG replicate in direction here, and the contradiction with the
 MuSiQue result is dataset structure, not method.
 
-**The retriever effect is much larger on news, and no longer needs pooling.** The hybrid pipeline
+The second is that the retriever effect is much larger on news, and no longer needs pooling. The hybrid pipeline
 beats its dense-only twin by up to sixteen points on MultiHop-RAG (A vs A-minus: +0.160, +0.135,
 +0.110 across the three models), and the paired effect is individually significant within every model
 (DeepSeek 115:30, p = 6×10⁻¹³; Qwen 129:47, p = 5×10⁻¹⁰; Nova 99:49, p = 5×10⁻⁵) — where MuSiQue
@@ -306,7 +308,7 @@ retrieval earns its keep exactly where queries contain lexical anchors, and cont
 they do not. Null questions, finally, show no over-answering: every system scores 0.83–0.96 on the
 unanswerable set, and the iterative system is slightly *better* than single-pass there.
 
-**The economics sharpen.** The MultiHop-RAG accuracy–cost frontier collapses to two points: Nova-A
+The third is economic. The MultiHop-RAG accuracy–cost frontier collapses to two points: Nova-A
 (0.785 at $0.0006 per correct answer) and Qwen-F (0.875 at $0.0015). Qwen3-32B with parallel
 decomposition dominates every other configuration on both axes simultaneously — including every
 DeepSeek-V3 cell (DeepSeek-F reaches 0.855 at 3.8 times Qwen-F's cost) and Qwen's own iterative system
@@ -315,9 +317,9 @@ on both datasets; what changes between datasets is which orchestration accompani
 
 ## 4.9 Summary
 
-The completed matrix — eight systems, three models, two datasets, 9,600 runs — supports one central
-conclusion with several parts. **Which orchestration wins is a property of the dataset, not of the
-method.** On MuSiQue, whose hops depend sequentially on one another, iterative retrieval ranks first
+The completed matrix — eight systems, three models, two datasets, 8,400 runs — supports one central
+conclusion with several parts: which orchestration wins is a property of the dataset, not of the
+method. On MuSiQue, whose hops depend sequentially on one another, iterative retrieval ranks first
 under every model and parallel decomposition fails to beat single-pass retrieval; on MultiHop-RAG,
 whose evidence requirements are largely independent, the ranking inverts — parallel decomposition is
 the best and cheapest multi-query strategy, nominally significantly ahead of both single-pass and

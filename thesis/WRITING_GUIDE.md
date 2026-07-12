@@ -29,8 +29,8 @@ Write from what is most settled outward. Recommended order:
 
 | # | Chapter | Status (2026-07-11) | Gate |
 |---|---|---|---|
-| 1 | **Ch3 Methodology** | ✅ full prose draft; both arms final; one placeholder left (hardware, §3.8) | your voice rewrite |
-| 2 | **Ch4 Results** | ✅ full prose draft, BOTH arms populated (9,600 runs; §4.8 written; no pending markers) | your voice rewrite |
+| 1 | **Ch3 Methodology** | ✅ full prose draft; both arms final; hardware filled (§3.8); zero placeholders | your voice rewrite |
+| 2 | **Ch4 Results** | ✅ full prose draft, BOTH arms populated (8,400 runs; §4.8 written; no pending markers) | your voice rewrite |
 | 3 | **Ch2 Literature review** | ✅ full prose draft from the verified base | your voice rewrite + ⚠ ref re-checks |
 | 4 | **Ch1 Introduction** | ✅ full prose draft, updated to the completed matrix | your voice rewrite + supervisor scope |
 | 5 | **Ch5 Conclusions** | ❌ not started — **now unblocked** (every RQ has complete evidence; see analysis §10 for the per-RQ answers) | none — the next writing task |
@@ -127,6 +127,11 @@ Status: ✅ = primary-verified this project · ⚠ = verify against the PDF befo
 | ReAct | Yao, S. et al. (2023). ICLR. | ⚠ |
 | Search-R1 / R1-Searcher | arXiv:2503.09516 (cite v5) / arXiv:2503.05592 | ✅ with version-drift note |
 | CRAG (if judge mentioned) | Yang, X. et al. (2024). KDD. | ⚠ |
+| HotpotQA | Yang, Z., Qi, P., Zhang, S., Bengio, Y., Cohen, W. W., Salakhutdinov, R. & Manning, C. D. (2018). HotpotQA: A Dataset for Diverse, Explainable Multi-hop Question Answering. EMNLP. arXiv:1809.09600 | ⚠ (author list not re-verified) |
+| RRF | Cormack, G. V., Clarke, C. L. A. & Buettcher, S. (2009). Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods. SIGIR. | ⚠ VERIFY FROM ZERO — short paper, details unchecked |
+| HippoRAG | Gutiérrez, B. J. et al. (2024). HippoRAG: Neurobiologically Inspired Long-Term Memory for LLMs. NeurIPS. arXiv:2405.14831 | ⚠ (cost figures cited from memory) |
+| FlashRAG | Jin, J. et al. (2024). FlashRAG: A Modular Toolkit for Efficient RAG Research. arXiv:2405.13576 | ⚠ (scope claim unchecked) |
+| Self-RAG | Asai, A., Wu, Z., Wang, Y., Sil, A. & Hajishirzi, H. (2024). Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection. ICLR. arXiv:2310.11511 | ⚠ (BG.pdf entry had a fabricated author tail — rebuild from primary) |
 
 **Never reuse** a reference entry from chap 2.docx or BG.pdf without rebuilding it from the primary
 source — both documents contain confirmed fabricated metadata.
