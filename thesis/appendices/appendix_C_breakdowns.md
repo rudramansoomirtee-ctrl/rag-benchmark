@@ -125,6 +125,83 @@ Copied from `thesis/musique_matrix_analysis.md` §10:
 | Pareto | Qwen-B tops frontier | **Qwen-F dominates everything** |
 | Absolute difficulty | hard (best 0.527) | easier (best 0.875) |
 
+## C.7 Cost-effectiveness — the full 24-cell grid (MuSiQue) and the MultiHop frontier
+
+Copied from `thesis/musique_matrix_analysis.md` §5 (MuSiQue, all 8 systems × 3 models, accuracy ·
+$/correct, sorted by cost; ⁻ = dense-only twin):
+
+| Cell | Acc | $/correct | | Cell | Acc | $/correct |
+|---|---|---|---|---|---|---|
+| Nova-A | .273 | $0.00083 | | Qwen-F-seq⁻ | .467 | $0.00228 |
+| Nova-A⁻ | .260 | $0.00084 | | Qwen-F-seq | .480 | $0.00230 |
+| Nova-F-seq | .320 | $0.00119 | | Nova-B | .347 | $0.00276 |
+| Nova-F | .300 | $0.00119 | | Nova-B⁻ | .307 | $0.00303 |
+| Qwen-A | .473 | $0.00128 | | Qwen-B | **.527** | $0.00416 |
+| Nova-F⁻ | .260 | $0.00133 | | DS-A | .487 | $0.00425 |
+| Qwen-A⁻ | .420 | $0.00140 | | DS-A⁻ | .420 | $0.00473 |
+| Nova-F-seq⁻ | .260 | $0.00143 | | Qwen-B⁻ | .467 | $0.00483 |
+| Qwen-F | .440 | $0.00170 | | DS-F | .453 | $0.00574 |
+| Qwen-F⁻ | .420 | $0.00171 | | DS-F⁻ | .427 | $0.00588 |
+| | | | | DS-F-seq | .480 | $0.00814 |
+| | | | | DS-F-seq⁻ | .433 | $0.00872 |
+| | | | | DS-B | .513 | $0.01710 |
+| | | | | DS-B⁻ | .447 | $0.01927 |
+
+> Pareto frontier (accuracy ↑ vs $/correct ↓): Nova-A → Nova-F-seq → Qwen-A → Qwen-F-seq → Qwen-B.
+> Every DeepSeek cell is dominated. B costs ~4× A per correct answer within every model. Caveat:
+> $/correct covers LLM generation only; the Cohere reranker is a separately-metered per-retrieval
+> charge borne identically by all hybrid systems.
+
+MultiHop-RAG (from §9.4 — only the frontier-relevant cells carry printed $/correct values): the
+frontier collapses to **Nova-A (0.785, $0.00064/correct) → Qwen-F (0.875, $0.00147/correct)**;
+Qwen-F dominates every other configuration, including every DeepSeek cell (DeepSeek-F: 0.855 at
+$0.00557, 3.8× the cost for less accuracy) and Qwen-B (0.845 at $0.00384, 2.6× the cost for less
+accuracy).
+
+## C.8 System B termination behaviour (MuSiQue)
+
+Copied from `thesis/musique_matrix_analysis.md` §7.1:
+
+| Exp | System | Early-stop rate (n<5) | Early-stop acc | Forced-stop rate (n=5) | Forced-stop acc |
+|---|---|---|---|---|---|
+| DeepSeek | B | 20.7% | **0.839** | 79.3% | 0.429 |
+| DeepSeek | B-minus | 16.0% | **0.958** | 84.0% | 0.349 |
+| Qwen3 | B | 56.7% | **0.706** | 43.3% | 0.292 |
+| Qwen3 | B-minus | 43.3% | **0.646** | 56.7% | 0.329 |
+| Nova | B | 34.7% | **0.577** | 65.3% | 0.224 |
+| Nova | B-minus | 29.3% | **0.545** | 70.7% | 0.208 |
+
+> Early self-termination beats budget-forced termination by 20–61 accuracy points in all six cells.
+
+## C.9 Post-hoc abstention policy (MuSiQue; zero new LLM calls)
+
+Copied from `thesis/musique_matrix_analysis.md` §7.8. Policy: answer only when B self-terminates
+(n_steps < 5); abstain when forced to the budget. Re-scored from stored runs:
+
+| Exp | System | Coverage (answers) | Selective acc | Baseline acc | Correct kept | Wrong answers avoided |
+|---|---|---|---|---|---|---|
+| DeepSeek | B | 31/150 (21%) | **0.839** | 0.513 | 26/77 | 68 (45% of all queries) |
+| DeepSeek | B-minus | 24/150 (16%) | **0.958** | 0.447 | 23/67 | 82 |
+| **Qwen3** | **B** | **85/150 (57%)** | **0.706** | 0.527 | **60/79 (76%)** | **46** |
+| Qwen3 | B-minus | 65/150 (43%) | 0.646 | 0.467 | 42/70 | 57 |
+| Nova | B | 52/150 (35%) | 0.577 | 0.347 | 30/52 | 76 |
+| Nova | B-minus | 44/150 (29%) | 0.545 | 0.307 | 24/46 | 84 |
+
+> Selective accuracy rises +17 to +51 points over baseline in every cell. The escalation-to-A
+> alternative (answer with single-pass A whenever B is forced) is *worse than plain B everywhere*
+> (DeepSeek 0.487 vs 0.513; Qwen 0.520 vs 0.527; Nova 0.320 vs 0.347), because A performs even worse
+> than forced-B on that subset (0.395 / 0.277 / 0.184 vs B's 0.429 / 0.292 / 0.224) — budget
+> exhaustion flags queries that are intrinsically hard for every orchestration. The gold-in-context /
+> generation-side failure-attribution table supporting §4.7's remaining claim is in Appendix D (§D.4).
+
+## C.10 Secondary-metric agreement
+
+Copied from `thesis/musique_matrix_analysis.md` (lines as noted): MuSiQue token-F1 under DeepSeek-V3
+— A 0.444 · B 0.477 · F 0.416 · F-seq 0.463 — tracks the containment ordering (§2). On MultiHop-RAG,
+token-F1 tracks containment throughout (e.g. Qwen-F 0.870); Nova Lite's token-F1 is depressed by
+verbosity (0.42–0.52) while its containment holds (§9.1). Exact match is zero across all systems on
+MuSiQue. No per-cell token-F1 grid beyond these values is recorded in the source documents.
+
 ---
 
 **Not found in sources:** a full MultiHop-RAG per-question-type × per-system numeric grid (i.e. all 8
@@ -132,4 +209,5 @@ systems × 3 models × 4 question types, analogous to the MuSiQue per-hop table 
 in `thesis/musique_matrix_analysis.md` — only the comparison-type and inference-type retriever-effect
 figures (C.5) and the null-type summary range (0.833–0.958) are present. The full by-type breakdown
 may exist in the live `/api/experiments/{id}/by-type` endpoint or notebook output but is not recorded
-as a static table in the reviewed source documents.
+as a static table in the reviewed source documents. Likewise no full per-cell token-F1 grid exists
+(C.10 carries what is recorded).

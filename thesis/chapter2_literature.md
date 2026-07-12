@@ -222,4 +222,7 @@ and two benchmarks whose retrieval characteristics deliberately differ.
 > Chu et al. 2024 Table 1 (their "+8.5%" abstract claim does not reconcile with the table — cite
 > table values only). All inline citations now have verified entries in references_draft.md; note
 > the LLM-Embedder paper (Zhang et al., 2023) was retitled in a 2026 arXiv revision — pin the arXiv
-> version if quoting from it.
+> version if quoting from it. ONE claim still needs a PDF re-check before submission: §2.2's
+> "single-step retrieval actually underperformed no retrieval on exact match" — the containment
+> numbers (23.6→31.6) are verified against Adaptive-RAG Table 8, but the exact-match sub-claim was
+> not re-verified; confirm against Jeong et al. (2024) Table 8's EM column or drop the clause.

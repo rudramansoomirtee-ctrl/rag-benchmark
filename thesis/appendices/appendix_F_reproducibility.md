@@ -1,7 +1,7 @@
 # Appendix F — Reproducibility Record
 
 > Appendix draft — content copied from `CLAUDE.md`, `thesis/musique_matrix_analysis.md`,
-> `DISSERTATION_AUDIT.md`, and (hardware only, §F.7) `thesis/chapter3_methodology.md` §3.8;
+> `DISSERTATION_AUDIT.md`, and (hardware only, §F.7) `thesis/chapter3_methodology.md` §3.9;
 > renumber/reformat at Word conversion.
 
 ## F.1 Frozen configuration values
@@ -156,7 +156,7 @@ for faithfulness scoring specifically.
 
 Not present in the four primary source documents listed in the task brief, but resolved as a
 previously-open placeholder (`DISSERTATION_AUDIT.md` §5d: "remaining placeholder: hardware CPU/RAM in
-Ch3 §3.8") and located, filled in, in `thesis/chapter3_methodology.md` §3.8:
+Ch3 §3.8") and located, filled in, in `thesis/chapter3_methodology.md` §3.9 (the audit note predates the renumbering that made §3.8 the statistical-analysis section):
 
 > Hardware is recorded because the embedder runs locally and shapes latency (Intel Core Ultra 7 155U,
 > 16 GB RAM, Windows 11 Pro, Docker Desktop/WSL2).

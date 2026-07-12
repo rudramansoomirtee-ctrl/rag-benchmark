@@ -48,9 +48,11 @@ is to say most of the literature, cannot observe.
 
 **RQ4 — How predictable and robust are these systems?** Two results answer this. First, robustness:
 the smallest model in the panel could not execute the decomposition systems — its structured
-decomposition output failed to parse on roughly 85% of questions, on both datasets, collapsing both
-decomposition variants to single-retrieval behaviour — while the iterative system, whose free-text
-routing assumes nothing about structured output, ran at full capability on the same model.
+decomposition output failed to parse on roughly 85% of MuSiQue questions, collapsing both
+decomposition variants to single-retrieval behaviour, and the collapse replicated on MultiHop-RAG
+(mean retrieval counts near 1.5 against 3.4–3.7 under the larger models) — while the iterative
+system, whose free-text routing assumes nothing about structured output, ran at full capability on
+the same model.
 Decomposition presupposes reliable structured generation; that assumption fails silently below a
 capability threshold, and iteration is the strategy that degrades least. Second, predictability: a
 fifty-question pilot within this project produced a confident retrieval conclusion — dense-only

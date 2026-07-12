@@ -149,8 +149,8 @@ and its lexical secondary. Exact match is zero across all systems: MuSiQue gold 
 never reproduced verbatim by instruction-tuned generators, which produce sentences rather than spans.
 This is precisely the failure of strict exact match as an instrument for generative systems that
 motivated the containment convention (§3.7), and it is reported here as evidence for that metric
-choice rather than as a finding about the systems. The full metric-agreement analysis appears in
-Appendix D.
+choice rather than as a finding about the systems. The recorded secondary-metric values for both
+arms are collected in Appendix C.
 
 ## 4.5 Cost (RQ2)
 
@@ -220,7 +220,7 @@ wrong conclusion within this very study.
 ## 4.7 The behaviour of the agentic systems
 
 The persisted trajectories permit an analysis of how the multi-step systems behave, beyond what they
-score. Four observations follow; the supporting tables are in Appendix C.
+score. Four observations follow; the supporting tables are in Appendices C and D.
 
 Self-termination proves to be a confidence signal. The iterative system stops early when its routing step
 elects to answer, and is otherwise forced to answer at the five-step budget. Early-stopped answers
