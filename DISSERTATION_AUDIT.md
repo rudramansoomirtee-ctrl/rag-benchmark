@@ -307,12 +307,14 @@ fan-out needs it). **Decision: budget held CONSTANT at 20** for a controlled com
 **MultiHop-RAG (n=50; exp42):** A (hybrid+rerank) **0.800** vs A-minus (semantic-only)
 0.600 → **+0.20** for the pipeline (gold recall@10 0.665 vs 0.456).
 
-**Finding:** the value of the hybrid+rerank pipeline is **dataset-dependent**. On news
-(MultiHop) it is worth **+0.20**; on MuSiQue it is flat-to-negative, and **dense-only +
-iteration is best — B-minus 0.640, the top MuSiQue score**, above B and F-seq (0.540).
-*Mechanism:* MuSiQue's hard distractors are **BM25-mined** (Trivedi 2022 — RELATED_WORK
-§8), so the lexical component is adversarial *by construction*; iteration compounds the
+**Finding (⚠ REFUTED at n=150 — see §5d; retained verbatim as the pilot record only):** the value of
+the hybrid+rerank pipeline is dataset-dependent. On news (MultiHop) it is worth +0.20; on MuSiQue it
+is flat-to-negative, and dense-only + iteration is best — B-minus 0.640, the top MuSiQue score, above
+B and F-seq (0.540). *Mechanism:* MuSiQue's hard distractors are BM25-mined (Trivedi 2022 —
+RELATED_WORK §8), so the lexical component is adversarial by construction; iteration compounds the
 lexical noise under hybrid but not under semantic-only (semantic−hybrid widens +0.04→+0.10).
+**n=150 verdict: the MuSiQue reversal did NOT replicate — hybrid beats dense in all 24 cells (pooled
+p=5.5e-05). The dataset-dependence survived in revised form (effect size, not direction, flips).**
 
 ### Multi-hop orchestration (MuSiQue, hybrid, exp38) — by hop
 F-seq is the strongest decomposition system on deep hops — 3-hop **0.600**, 4-hop

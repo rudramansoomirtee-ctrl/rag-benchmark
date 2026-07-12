@@ -5,8 +5,8 @@
 > sources or appendix pointers. Before submission: (a) rewrite in your own voice; (b) export the seven
 > figures — Mermaid source for each lives in `thesis/figures/figure_3_1.mmd` … `figure_3_7.mmd` — to
 > numbered images (paste each `.mmd` into mermaid.live, or run `mmdc -i figure_3_1.mmd -o figure_3_1.png`
-> for each); (c) resolve the one remaining `[CONFIRM]` marker (hardware CPU/RAM — §3.8); (d) attach the
-> reproducibility appendix. Both dataset arms are complete; all sample sizes are final.
+> for each); (c) attach the reproducibility appendix. Both dataset arms are complete; all sample sizes
+> and hardware details are final — no `[CONFIRM]` markers remain in this chapter.
 
 ---
 
@@ -250,7 +250,8 @@ re-bills completed work. Each experiment persists a provenance fingerprint: the 
 full configuration (retriever settings, budgets, model identifiers, and the pricing-library version),
 a corpus fingerprint, and the exact query identifiers of the sample. The final matrix was run at a
 single frozen commit, on one container image, against one index build. Hardware is recorded because
-the embedder runs locally and shapes latency `[CONFIRM: CPU/RAM]`. Every model call is traced
+the embedder runs locally and shapes latency (Intel Core Ultra 7 155U, 16 GB RAM, Windows 11 Pro,
+Docker Desktop/WSL2). Every model call is traced
 end-to-end via OpenTelemetry for post-hoc inspection, and the repository, configurations and
 run-level data are released for reproduction (Appendix `[X]`).
 
