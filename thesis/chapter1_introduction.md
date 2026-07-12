@@ -41,14 +41,14 @@ Three properties of the current evidence base make that decision hard.
 First, published comparisons are confounded. Reported results on the same benchmark differ not only
 in orchestration strategy but simultaneously in chunking scheme, embedding model, retriever, reranker,
 prompt, and generator; no public leaderboard existed for MultiHop-RAG at the time of writing that would
-normalise these choices (Appendix `[X]`). When a decomposition paper and an iteration paper each claim
+normalise these choices (Appendix A). When a decomposition paper and an iteration paper each claim
 gains over "standard RAG", the two baselines are rarely the same system, and the gains are not
 comparable.
 
 Second, cost is almost never part of the result. The strategies differ substantially in the number of
 model calls they issue per question — an iterative agent may make ten times the calls of a single-pass
-system — yet a survey of nineteen comparator papers conducted for this study (tabulated in Appendix
-`[X]`) found dollar cost reported in only one appendix, and cost per correct answer reported nowhere.
+system — yet a survey of nineteen comparator papers conducted for this study (tabulated in
+Appendix A) found dollar cost reported in only one appendix, and cost per correct answer reported nowhere.
 For deployment decisions the relevant quantity is not accuracy alone but what each additional correct
 answer costs.
 
@@ -75,7 +75,25 @@ where structured-output reliability, instruction following, and reasoning depth 
 absent, leaving open whether strategy rankings transfer across the model tier that most production
 systems occupy.
 
-## 1.4 Research questions
+## 1.4 Aim, objectives and research questions
+
+The aim of the study is to determine, under controlled and cost-accounted conditions, which
+orchestration strategy a practitioner should choose for multi-hop retrieval-augmented generation on
+cost-efficient language models. Five objectives operationalise the aim:
+
+- **O1.** To implement four orchestration strategies — single-pass, iterative retrieval, parallel
+  decomposition, and sequential decomposition — behind a single interface on one frozen retrieval
+  substrate, each paired with a dense-retrieval-only ablation (a 4×2 factorial).
+- **O2.** To evaluate the factorial under three language models spanning the cost-efficient tier, on
+  two multi-hop benchmarks with deliberately different retrieval characteristics, over identical
+  seeded question samples.
+- **O3.** To record the billed cost of every model call and derive cost per correct answer and the
+  accuracy–cost Pareto frontier across all configurations.
+- **O4.** To quantify the statistical reliability of the comparisons — paired tests, bootstrap
+  confidence intervals, and multiplicity correction — and the stability of strategy rankings across
+  models, datasets, and sample sizes.
+- **O5.** To derive evidence-based deployment recommendations from the resulting matrix, including
+  the behaviour of the strategies when a model cannot support their assumptions.
 
 The study is organised around four questions:
 
@@ -159,6 +177,7 @@ low ethical risk.
 Chapter 2 reviews the literature on retrieval-augmented generation, multi-hop question answering,
 orchestration strategies, and evaluation practice, and develops the three gaps. Chapter 3 describes
 the experimental design: the systems, the frozen substrate, the datasets and sampling, the metrics,
-and the reproducibility protocol. Chapter 4 reports the results of the two studies — the orchestration
-comparison and the retrieval-pipeline factorial — together with the behavioural analyses. Chapter 5
-answers the research questions, states the contributions and limitations, and outlines future work.
+and the reproducibility protocol. Chapter 4 reports and discusses the results of the two studies —
+the orchestration comparison and the retrieval-pipeline factorial — together with the behavioural
+analyses. Chapter 5 answers the research questions, states the contributions and limitations, derives
+recommendations for practice, and outlines future work.

@@ -29,12 +29,12 @@ Write from what is most settled outward. Recommended order:
 
 | # | Chapter | Status (2026-07-11) | Gate |
 |---|---|---|---|
-| 1 | **Ch3 Methodology** | ✅ full prose draft; both arms final; hardware filled (§3.8); zero placeholders | your voice rewrite |
+| 1 | **Ch3 Methodology** | ✅ full prose draft; both arms final; hardware filled (§3.9); zero placeholders | your voice rewrite |
 | 2 | **Ch4 Results** | ✅ full prose draft, BOTH arms populated (8,400 runs; §4.8 written; no pending markers) | your voice rewrite |
 | 3 | **Ch2 Literature review** | ✅ full prose draft from the verified base | your voice rewrite + ⚠ ref re-checks |
 | 4 | **Ch1 Introduction** | ✅ full prose draft, updated to the completed matrix | your voice rewrite + supervisor scope |
-| 5 | **Ch5 Conclusions** | ❌ not started — **now unblocked** (every RQ has complete evidence; see analysis §10 for the per-RQ answers) | none — the next writing task |
-| 6 | Abstract, front matter, reference list, appendices, figure exports | not started | Ch5 |
+| 5 | **Ch5 Conclusions** | ✅ full prose draft (chapter5_conclusions.md — RQ answers, contributions, recommendations, limitations, future work) | your voice rewrite |
+| 6 | Abstract, front matter, reference list, appendices, figure exports | ✅ ALL in place: front_matter.md (abstract + AI-disclosure declaration draft + preliminaries checklist), references_draft.md (all 24 entries web-verified with source URLs), thesis/appendices/A–F (copy-only from verified docs), figures 3.1–3.7 + 4.1–4.4 exported as PNGs with generating scripts | your voice rewrite of abstract; adapt declaration to faculty form; spot-check figures |
 
 Why this order: Ch3 re-grounds you in your own design (best warm-up); Ch4 is transcription of verified
 results; Ch2/Ch1 are framing that must match what Ch3/Ch4 actually say; Ch5 answers RQs that Ch4 must

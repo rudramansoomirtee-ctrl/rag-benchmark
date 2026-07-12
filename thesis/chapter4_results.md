@@ -1,4 +1,4 @@
-# Chapter 4 — Results
+# Chapter 4 — Results and Discussion
 
 > **Status: complete prose draft for your review — not a hand-in. BOTH arms now populated.** MuSiQue
 > numbers are the verified final-matrix values (n=150 per cell, 3,600 runs, zero failures); MultiHop-RAG
@@ -13,7 +13,7 @@
 The evaluation reported here executed the full 4×2 factorial of Chapter 3 — four orchestration
 strategies, each with its dense-only twin — under three language models on the MuSiQue benchmark:
 3,600 runs in total (8 systems × 150 questions × 3 models), with no failed runs. All cells share the
-frozen configuration described in §3.8: one commit, one index build, one seeded stratified sample
+frozen configuration described in §3.9: one commit, one index build, one seeded stratified sample
 (78 two-hop, 45 three-hop, 27 four-hop questions; seed 42), identical query identifiers in every
 cell, the Cohere reranker, and a uniform twenty-passage answer budget. The MultiHop-RAG arm executed
 the same factorial over 200 seeded stratified questions (64 inference, 67 comparison, 45 temporal,
@@ -22,21 +22,17 @@ matrix) and is scored as incorrect under
 the declared policy. Total generation cost for the complete 8,400-run matrix was approximately $25.
 An independent integrity audit confirmed sample identity across all cells, configuration constancy,
 completeness, and the absence of scoring anomalies; the audit and the full statistical tables are
-reproduced in Appendix `[X]`.
+reproduced in Appendices D and E.
 
-Because every system answered the same questions, all comparisons in this chapter are paired, and
-significance statements use exact paired sign tests unless stated otherwise. Accuracy cells are
-reported with 95% confidence intervals from a seeded non-parametric bootstrap (10,000 resamples,
-percentile method). Three phrasing conventions are applied throughout, following the statistical
-results rather than preceding them. Effects consistent in direction but individually underpowered
-are described as *directional*; pooled tests are reported as pooled, never as per-cell findings; and
-nominal significance is distinguished from multiplicity-corrected significance. On the last point,
-a Holm–Bonferroni correction across the six pooled orchestration contrasts examined leaves **none**
-of them significant at the 5% level — the strongest (parallel decomposition over single-pass on
-MultiHop-RAG, p = .011) narrowly misses its corrected threshold of .0083 — whereas the four pooled
-retriever contrasts **all survive** the same correction within their family, with room to spare
-(p ≤ 5.5 × 10⁻⁵ against thresholds of .0125–.05). Orchestration conclusions in this chapter
-therefore rest on the *consistency* of direction across models and the *coherence* of the
+All comparisons in this chapter follow the statistical plan of §3.8: paired exact sign tests,
+seeded bootstrap confidence intervals on every accuracy cell, and Holm–Bonferroni correction within
+the two pre-specified contrast families, with the directional / nominal / corrected phrasing
+conventions defined there. Applying the correction to the executed matrix frames the chapter at the
+outset: of the six pooled orchestration contrasts, **none** remains significant at the 5% level —
+the strongest (parallel decomposition over single-pass on MultiHop-RAG, p = .011) narrowly misses
+its corrected threshold of .0083 — whereas the four pooled retriever contrasts **all survive** with
+room to spare (p ≤ 5.5 × 10⁻⁵ against thresholds of .0125–.05). Orchestration conclusions in this
+chapter therefore rest on the *consistency* of direction across models and the *coherence* of the
 cross-dataset pattern, and are labelled nominally significant where p < .05 uncorrected; the
 retriever conclusions rest on corrected significance outright.
 
@@ -61,6 +57,9 @@ rather than genuine decomposition. Note that the per-cell intervals overlap heav
 orchestrations within a model — the paired analyses below, not the marginal intervals, carry the
 comparative claims.*
 
+*Figure 4.2 — the same cells graphically, grouped by system with CI whiskers.
+[File: `thesis/figures/figure_4_2_musique_accuracy.png`.]*
+
 Three results emerge.
 
 Iterative retrieval is the strongest orchestration under every model. B ranks first in all three
@@ -80,7 +79,7 @@ Qwen3-32B and the pooled comparison marginally favours A (23 pairs to 29). The m
 in the design: F must phrase later-hop sub-questions before earlier hops are resolved, so a
 sub-question such as "the spouse of *that director*" goes to the retriever with its key entity
 unresolved. No published study was found in the literature survey conducted for this study (Appendix
-`[X]`) reporting this negative result — or its converse — under
+A) reporting this negative result — or its converse — under
 matched conditions, and it stands in tension with the decomposition gains of Ammann, Golde and Akbik
 (2025) on MultiHop-RAG, obtained on a different benchmark with a different retrieval stack. The
 MultiHop-RAG arm of this study (§4.8) resolves the discrepancy directly: on that benchmark, F is the
@@ -97,7 +96,7 @@ lost at generation (§4.7).
 
 Accuracy declines with hop depth for every system and model. Under DeepSeek-V3, for example, System B
 falls from 0.577 on two-hop questions to 0.296 on four-hop; the full per-hop tables are in Appendix
-`[X]`. The four-hop stratum (n = 27) is small, and per-stratum differences there should be read as
+C. The four-hop stratum (n = 27) is small, and per-stratum differences there should be read as
 indicative only.
 
 ## 4.3 The retrieval pipeline and its interaction with orchestration (Study 2)
@@ -151,12 +150,12 @@ never reproduced verbatim by instruction-tuned generators, which produce sentenc
 This is precisely the failure of strict exact match as an instrument for generative systems that
 motivated the containment convention (§3.7), and it is reported here as evidence for that metric
 choice rather than as a finding about the systems. The full metric-agreement analysis appears in
-Appendix `[X]`.
+Appendix D.
 
 ## 4.5 Cost (RQ2)
 
 Table 4.3 reports cost per correct answer — total billed generation cost divided by correct answers —
-for selected configurations; the full twenty-four-cell table is in Appendix `[X]`.
+for selected configurations; the full twenty-four-cell table is in Appendix C.
 
 | Configuration | Accuracy | Cost per correct answer |
 |---|---|---|
@@ -169,6 +168,10 @@ for selected configurations; the full twenty-four-cell table is in Appendix `[X]
 
 *Table 4.3 — cost-effectiveness of selected configurations, MuSiQue. Costs are billed generation
 charges; the reranker is metered separately and identically for all hybrid systems.*
+
+*Figure 4.1 — accuracy against cost per correct answer (log scale) for the hybrid systems under all
+three models, both datasets, with the Pareto frontier drawn.
+[File: `thesis/figures/figure_4_1_pareto.png`.]*
 
 The accuracy–cost frontier is occupied entirely by the two cheaper models: in order of increasing
 cost and accuracy, Nova-A, Nova-F-seq, Qwen-A, Qwen-F-seq, Qwen-B. Every DeepSeek-V3 configuration is
@@ -217,7 +220,7 @@ wrong conclusion within this very study.
 ## 4.7 The behaviour of the agentic systems
 
 The persisted trajectories permit an analysis of how the multi-step systems behave, beyond what they
-score. Four observations follow; the supporting tables are in Appendix `[X]`.
+score. Four observations follow; the supporting tables are in Appendix C.
 
 Self-termination proves to be a confidence signal. The iterative system stops early when its routing step
 elects to answer, and is otherwise forced to answer at the five-step budget. Early-stopped answers
@@ -247,7 +250,7 @@ Where generation fails turns out to be positional. Restricting attention to runs
 evidence set was in context — retrieval fully controlled — accuracy falls from 0.727 when the deepest
 needed passage sits in the top five context positions to 0.469 when it sits in the bottom five, a
 twenty-six point decline that persists within a single hop stratum. The pattern is consistent with
-the position-sensitivity literature (Liu et al., 2023), with one caveat stated plainly: context
+the position-sensitivity literature (Liu et al., 2024), with one caveat stated plainly: context
 position here is assigned by the reranker rather than randomised, so position and question difficulty
 are partially confounded, and the finding is correlational. A randomised-position replication is
 identified as future work.
@@ -272,6 +275,9 @@ decomposition systems degraded to near-single-retrieval behaviour again (mean re
 1.45–1.57 against 3.4–3.7 under the larger models), replicating the robustness finding of §4.6 on a
 second dataset. The A/A-minus intervals are disjoint under every model — the retriever effect on this
 dataset is visible even in the marginal intervals, unlike any orchestration contrast.*
+
+*Figure 4.3 — the same cells graphically, grouped by system with CI whiskers.
+[File: `thesis/figures/figure_4_3_multihop_accuracy.png`.]*
 
 Absolute accuracy is far higher than on MuSiQue — 0.83 rather than 0.49 for the single-pass baseline —
 consistent with MultiHop-RAG's less adversarial construction. Three results carry the chapter's
@@ -303,10 +309,15 @@ required pooling the entire matrix to secure a three-to-seven point effect. The 
 localises the mechanism precisely: the advantage concentrates in **comparison questions**, which name
 their sources ("the TechCrunch article on…"), where the single-pass system scores 0.791 with the
 hybrid retriever against 0.373 without it under DeepSeek-V3 — a forty-two point gap — while
-inference-type questions show essentially no retriever effect at all (0.938 against 0.938). Lexical
+inference-type questions show essentially no retriever effect at all (0.938 against 0.938); Figure
+4.4 shows the contrast. Lexical
 retrieval earns its keep exactly where queries contain lexical anchors, and contributes little where
 they do not. Null questions, finally, show no over-answering: every system scores 0.83–0.96 on the
 unanswerable set, and the iterative system is slightly *better* than single-pass there.
+
+*Figure 4.4 — the retriever effect localised by question type (single-pass system, DeepSeek-V3):
+no effect on inference questions, a forty-two point gap on source-naming comparison questions.
+[File: `thesis/figures/figure_4_4_retriever_by_type.png`.]*
 
 The third is economic. The MultiHop-RAG accuracy–cost frontier collapses to two points: Nova-A
 (0.785 at $0.0006 per correct answer) and Qwen-F (0.875 at $0.0015). Qwen3-32B with parallel

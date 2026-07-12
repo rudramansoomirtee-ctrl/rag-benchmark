@@ -2,11 +2,10 @@
 
 > **Status: complete draft for your review — not a hand-in.** This is a prose rewrite of the earlier
 > scaffold: same facts and design, academic register, internal-document citations replaced by primary
-> sources or appendix pointers. Before submission: (a) rewrite in your own voice; (b) export the seven
-> figures — Mermaid source for each lives in `thesis/figures/figure_3_1.mmd` … `figure_3_7.mmd` — to
-> numbered images (paste each `.mmd` into mermaid.live, or run `mmdc -i figure_3_1.mmd -o figure_3_1.png`
-> for each); (c) attach the reproducibility appendix. Both dataset arms are complete; all sample sizes
-> and hardware details are final — no `[CONFIRM]` markers remain in this chapter.
+> sources or appendix pointers. All seven figures are exported as PNGs in `thesis/figures/` (Mermaid
+> sources alongside); the reproducibility appendix is Appendix F. Before submission: rewrite in your
+> own voice. Both dataset arms are complete; all sample sizes and hardware details are final — no
+> `[CONFIRM]` markers remain in this chapter.
 
 ---
 
@@ -30,9 +29,9 @@ conclusion can be examined across generators and data distributions.
 Determinism is enforced wherever a language model is called (temperature zero throughout); every
 strategy is implemented behind a single programming interface and executed by one runner; and each
 experiment records a provenance fingerprint — the exact code version, configuration, and query sample
-— sufficient to reproduce it (§3.8).
+— sufficient to reproduce it (§3.9).
 
-*Figure 3.1 — experimental design overview. [Source: `thesis/figures/figure_3_1.mmd` — export before submission.]*
+*Figure 3.1 — experimental design overview. [File: `thesis/figures/figure_3_1.png`; Mermaid source alongside.]*
 
 ## 3.2 The controlled comparison
 
@@ -53,7 +52,7 @@ The twenty-passage budget was fixed after a sensitivity ablation on pilot data s
 optimum differs by strategy: iterative accumulation performed better with a narrower context, and
 decomposition with a wider one. A single constant was adopted in preference to per-system tuning,
 trading a few points of one system's accuracy for a comparison in which context size cannot explain
-any difference. The ablation is reported in Appendix `[X]`.
+any difference. The ablation is reported in Appendix B.
 
 **Study 2: the retrieval pipeline.** Each of the four systems has a twin — A-minus, B-minus, F-minus,
 F-seq-minus — identical in every respect except that retrieval is restricted to dense
@@ -65,7 +64,7 @@ replaced an earlier design in which several retrieval improvements were stacked 
 stacking confounds levers, and the revised design manipulates the retriever as a single factor
 instead.
 
-*Figure 3.2 — the single-variable orchestration comparison. [Source: `thesis/figures/figure_3_2.mmd`.]*
+*Figure 3.2 — the single-variable orchestration comparison. [File: `thesis/figures/figure_3_2.png`.]*
 
 ## 3.3 The eight systems
 
@@ -128,8 +127,8 @@ in the recorded retrieval count. The fallback matters beyond robustness. On the 
 panel it converts a would-be crash into a measurable finding about which strategies small models can
 execute at all (§3.5).
 
-*Figures 3.3–3.5 — control flow of systems B, F and F-seq. [Sources: `thesis/figures/figure_3_3.mmd`,
-`figure_3_4.mmd`, `figure_3_5.mmd`.]*
+*Figures 3.3–3.5 — control flow of systems B, F and F-seq. [Files: `thesis/figures/figure_3_3.png`,
+`figure_3_4.png`, `figure_3_5.png`.]*
 
 ## 3.4 The shared retrieval substrate
 
@@ -154,7 +153,7 @@ comparison questions frequently identify an article by its publisher, which the 
 expose; without the metadata such questions fail across every system even when retrieval succeeds.
 Since the formatting is common to all systems, it cannot advantage any one strategy.
 
-*Figure 3.6 — the retrieval substrate and the dense-only ablation path. [Source: `thesis/figures/figure_3_6.mmd`.]*
+*Figure 3.6 — the retrieval substrate and the dense-only ablation path. [File: `thesis/figures/figure_3_6.png`.]*
 
 ## 3.5 Models and inference
 
@@ -233,14 +232,36 @@ is discussed as future work; no faithfulness numbers are reported.
 Every run also records billed cost, token counts, latency, and the number of retrievals performed.
 Two aggregates carry the economic analysis: total cost, and **cost per correct answer** — total cost
 divided by the number of correct answers — for which no precedent was found in the literature
-surveyed for this study (Chapter 2; the survey is tabulated in Appendix `[X]`). A crashed run counts
+surveyed for this study (Chapter 2; the survey is tabulated in Appendix A). A crashed run counts
 as a wrong answer: failures remain in the accuracy denominator and their rate is reported rather than
 hidden. In the final matrix, no run failed.
 
-## 3.8 Reproducibility, provenance and ethics
+## 3.8 Statistical analysis
+
+Because every system, under every model, answers the identical question sample, all comparisons are
+paired, and the analysis plan follows from that design. Pairwise system contrasts use exact sign
+tests on the discordant pairs — questions one system answered correctly and the other did not —
+which make no distributional assumption and are exact at these sample sizes. Per-cell accuracies are
+reported with 95% confidence intervals from a seeded non-parametric bootstrap (10,000 resamples,
+percentile method), reproducible from the recorded seed. Where an effect is tested both within
+individual models and pooled across them, pooled results are reported as pooled and never restated
+as per-model findings.
+
+Multiple comparisons are corrected with the Holm–Bonferroni procedure, applied within two
+pre-specified families: the six pooled orchestration contrasts (each multi-query strategy against
+single-pass, and the strategies against one another, per dataset) and the four pooled retriever
+contrasts (hybrid against dense-only, per orchestration). Three phrasing conventions follow the
+statistics throughout Chapters 4 and 5: effects consistent in direction across models but
+individually underpowered are described as *directional*; effects with p < .05 before correction are
+*nominally significant*; and only effects surviving Holm correction are stated as significant
+without qualification. Rank stability across models is measured with Kendall's τ-b on the
+within-model system rankings, with exact permutation p-values. The full statistical tables are in
+Appendix D.
+
+## 3.9 Reproducibility, provenance and ethics
 
 *Figure 3.7 — the reproducible, idempotent pipeline: ingest, index, run the two studies at a frozen
-commit, compute metrics, analyse. [Source: `thesis/figures/figure_3_7.mmd`.]*
+commit, compute metrics, analyse. [File: `thesis/figures/figure_3_7.png`.]*
 
 The full stack — document store, search index, tracing service and application — is containerised,
 and every stage of the pipeline (ingestion, indexing, experiment execution, metric computation) is
@@ -253,7 +274,7 @@ single frozen commit, on one container image, against one index build. Hardware 
 the embedder runs locally and shapes latency (Intel Core Ultra 7 155U, 16 GB RAM, Windows 11 Pro,
 Docker Desktop/WSL2). Every model call is traced
 end-to-end via OpenTelemetry for post-hoc inspection, and the repository, configurations and
-run-level data are released for reproduction (Appendix `[X]`).
+run-level data are released for reproduction (Appendix F).
 
 The study carries low ethical risk: it uses two public research datasets, contains no personal or
 sensitive data, and makes only metered, authorised calls to commercial model APIs. The principal
